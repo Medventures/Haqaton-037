@@ -281,3 +281,32 @@ def test_curator_removes_steps(api, session):  # noqa: F811
 
     api.login_as(1)
     assert api.request("DELETE", f"{base}/PMPK_EXAM", json={"reason": "причина"}).status_code == 403  # parents can't
+
+
+def test_calendar_export(api, session):  # noqa: F811
+    case, body = _planned_case(api, session, CASE_B)
+    api.login_as(1)
+    assert api.get(f"/parent/cases/{case.id}/calendar.ics").status_code == 403  # not approved yet
+    api.login_as(3)
+    api.patch(f"/plans/{body['id']}/steps/VKK_REFERRAL", json={"status": "done"})
+    api.post(f"/plans/{body['id']}/approve")
+
+    api.login_as(1)
+    r = api.get(f"/parent/cases/{case.id}/calendar.ics")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/calendar")
+    assert "attachment" in r.headers["content-disposition"]
+    ics = r.text
+    assert ics.startswith("BEGIN:VCALENDAR\r\n") and ics.endswith("END:VCALENDAR\r\n")
+    open_steps = [s for s in body["plan"]["steps"] if s["service_id"] != "VKK_REFERRAL"]
+    assert ics.count("BEGIN:VEVENT") == len(open_steps)  # the done step is left out
+    school = _step(body, "SPECIAL_SCHOOL_ENROLL")
+    assert f"DTSTART;VALUE=DATE:{school['due_date'].replace('-', '')}" in ics
+    assert "TRIGGER:-P3D" in ics
+    assert all(len(line.encode()) <= 75 for line in ics.split("\r\n"))  # folded
+    unfolded = ics.replace("\r\n ", "")
+    assert "SUMMARY:Срок: " in unfolded
+    kk = api.get(f"/parent/cases/{case.id}/calendar.ics?lang=kk").text.replace("\r\n ", "")
+    assert "SUMMARY:Мерзім: " in kk
+    assert api.get(f"/parent/cases/{case.id}/calendar.ics?lang=en").status_code == 422
+    api.login_as(2)
+    assert api.get(f"/parent/cases/{case.id}/calendar.ics").status_code == 403

@@ -83,6 +83,11 @@ class QuestionOut(BaseModel):
     kind: Literal["choice", "multi", "age", "months", "text"]
     options: list[str]  # «Не знаю» is not listed: send dont_know=true
     dont_know_label: str = "Не знаю"
+    # Kazakh texts (same variant and option order); None where there is no translation
+    text_kk: str | None = None
+    hint_kk: str | None = None
+    options_kk: list[str] | None = None
+    dont_know_label_kk: str = "Білмеймін"
 
 
 class AnswerIn(BaseModel):
@@ -111,11 +116,13 @@ class InterviewOut(BaseModel):
     min_questions: int
     max_questions: int
     done: bool
+    urgent_reasons: list[str] = []  # red flags from the answers: show «к врачу» advice right away
 
 
 class PlanDocument(BaseModel):
     doc_code: str
     title: str
+    title_kk: str | None = None
     on_hand: bool
     from_step: str | None  # the earlier step that produces it
     auto_fetch: str | None  # fetched from a state system, the family doesn't bring it
@@ -138,6 +145,10 @@ class PlanStep(BaseModel):
     priority: int
     rationale: str  # for the curator
     parent_explanation: str
+    parent_explanation_kk: str | None = None
+    title_kk: str | None = None
+    responsible_kk: str | None = None
+    deadline_note_kk: str | None = None
     text_source: Literal["ai", "fallback", "curator"]
     warning: str | None
     completed_by: Literal["parent", "curator"] | None = None  # who marked the step done
@@ -161,6 +172,7 @@ class PlanContent(BaseModel):
     model: str | None
     steps: list[PlanStep]
     undecided: list[ServiceId]  # services unknown facts keep open, for the curator
+    urgent_reasons: list[str] = []  # red flags from the interview
     removed: list[RemovedStep] = []  # steps the curator took out, with the reason
 
 
@@ -190,8 +202,9 @@ class StepPatch(BaseModel):
     due_date: date | None = None
     rationale: str | None = Field(default=None, min_length=1, max_length=MAX_RATIONALE)  # curator-only note
     parent_explanation: str | None = Field(default=None, min_length=1, max_length=MAX_EXPLANATION)
+    parent_explanation_kk: str | None = Field(default=None, min_length=1, max_length=MAX_EXPLANATION)
 
-    @field_validator("rationale", "parent_explanation")
+    @field_validator("rationale", "parent_explanation", "parent_explanation_kk")
     @classmethod
     def _strip(cls, v: str | None) -> str | None:
         if v is not None and not v.strip():
@@ -241,6 +254,7 @@ class CuratorLoad(BaseModel):
 class CaseSummary(CaseOut, OverdueSummary):
     parent_name: str
     plan_id: int | None
+    urgent_reasons: list[str] = []
 
 
 class CaseListOut(BaseModel):
@@ -290,6 +304,10 @@ class ParentStep(BaseModel):
     status: StepStatus
     priority: int
     parent_explanation: str
+    parent_explanation_kk: str | None = None
+    title_kk: str | None = None
+    responsible_kk: str | None = None
+    deadline_note_kk: str | None = None
     warning: str | None
     completed_by: Literal["parent", "curator"] | None = None
     completed_at: str | None = None
@@ -302,6 +320,7 @@ class ParentPlanOut(BaseModel):
     steps: list[ParentStep]
     overdue: OverdueSummary
     today: date
+    urgent_reasons: list[str] = []
 
 
 class ServiceOut(BaseModel):

@@ -26,7 +26,8 @@ def test_seed(session):  # noqa: F811
     assert demo_today == date(2026, 9, 11)
     assert verify_password(seed.DEMO_PASSWORD, parent.password_hash)
     assert len(session.exec(select(models.User)).all()) == 5  # three test users + the two demo accounts
-    assert [c.label for c in session.exec(select(models.Case)).all()] == ["Алихан, 3 года", "Амина, 6 лет"]
+    labels = [c.label for c in session.exec(select(models.Case)).all()]
+    assert labels == ["Алихан, 3 года", "Амина, 6 лет", "Данияр, 4 года"]
 
     app.dependency_overrides[get_session] = lambda: session
     curator = session.exec(select(models.User).where(models.User.phone == seed.DEMO_CURATOR_PHONE)).one()
@@ -41,10 +42,12 @@ def test_seed(session):  # noqa: F811
         assert by_label["Алихан, 3 года"]["worst_level"] == 1
         assert by_label["Амина, 6 лет"]["overdue_count"] == 1
         assert by_label["Амина, 6 лет"]["worst_level"] == 2
-        assert listing[0]["label"] == "Амина, 6 лет"  # worst first
+        assert [c["label"] for c in listing] == ["Данияр, 4 года", "Амина, 6 лет", "Алихан, 3 года"]  # urgent, then worst
+        assert by_label["Данияр, 4 года"]["urgent_reasons"] == ["regression"]
+        assert by_label["Данияр, 4 года"]["status"] == "draft" and by_label["Данияр, 4 года"]["overdue_count"] == 0
 
         current["user"] = parent
-        for case, _ in created:
+        for case, _ in created[:2]:  # the approved ones
             assert case.status == "approved"
             assert 8 <= len(session.exec(select(models.InterviewAnswer).where(
                 models.InterviewAnswer.case_id == case.id)).all()) <= 12
@@ -52,9 +55,11 @@ def test_seed(session):  # noqa: F811
             late = [(s["step_id"], s["days_overdue"]) for s in parent_view["steps"] if s["days_overdue"]]
             assert late == ([("PMPK_EXAM", 5)] if case.label.startswith("Алихан") else [("SPECIAL_SCHOOL_ENROLL", 12)])
             assert all(s["parent_explanation"] for s in parent_view["steps"])
+        # The draft one is still hidden from the parent.
+        assert client.get(f"/parent/cases/{created[2][0].id}").status_code == 403
     finally:
         app.dependency_overrides.clear()
 
-    # Seeding twice gives the same two cases, not four.
+    # Seeding twice gives the same three cases, not six.
     seed.seed(session, date(2026, 9, 30))
-    assert len(session.exec(select(models.Case)).all()) == 2
+    assert len(session.exec(select(models.Case)).all()) == 3

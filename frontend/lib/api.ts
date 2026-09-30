@@ -1,3 +1,5 @@
+import { currentLang, translate } from "@/lib/i18n";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "aqylroute_token";
 
@@ -67,7 +69,7 @@ function errorMessage(body: unknown, status: number): string {
   if (Array.isArray(detail) && detail[0]?.msg) {
     return String(detail[0].msg).replace(/^Value error, /, "");
   }
-  return status >= 500 ? "Сервер недоступен. Попробуйте позже." : "Ошибка запроса";
+  return translate(currentLang(), status >= 500 ? "error.server" : "error.request");
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -80,7 +82,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     res = await fetch(`${API_URL}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError("Нет связи с сервером", 0);
+    throw new ApiError(translate(currentLang(), "error.network"), 0);
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(errorMessage(body, res.status), res.status);
@@ -140,7 +142,14 @@ export type Question = {
   kind: QuestionKind;
   options: string[];
   dont_know_label: string;
+  text_kk: string | null;
+  hint_kk: string | null;
+  options_kk: string[] | null;
+  dont_know_label_kk: string;
 };
+
+/** Red flags from the interview: shown to the parent at once as «к врачу» advice. */
+export type RedFlag = "regression" | "self_harm" | "seizures" | "aggression";
 
 export type InterviewState = {
   case: Case;
@@ -149,6 +158,7 @@ export type InterviewState = {
   min_questions: number;
   max_questions: number;
   done: boolean;
+  urgent_reasons: RedFlag[];
 };
 
 /** Exactly one of dont_know, option, options, value (months), text. */
@@ -163,6 +173,7 @@ export type Answer = { slot: string } & (
 export type PlanDocument = {
   doc_code: string;
   title: string;
+  title_kk: string | null;
   on_hand: boolean;
   from_step: string | null;
   auto_fetch: string | null;
@@ -185,6 +196,10 @@ export type PlanStep = {
   priority: number;
   rationale: string;
   parent_explanation: string;
+  parent_explanation_kk: string | null;
+  title_kk: string | null;
+  responsible_kk: string | null;
+  deadline_note_kk: string | null;
   text_source: "ai" | "fallback" | "curator";
   warning: string | null;
   completed_by: "parent" | "curator" | null;
@@ -220,6 +235,7 @@ export type Plan = {
     steps: PlanStep[];
     undecided: string[];
     removed: RemovedStep[];
+    urgent_reasons: RedFlag[];
   };
   overdue: OverdueSummary;
   today: string;
@@ -234,7 +250,8 @@ export type CuratorLoad = {
   norm_source: string;
 };
 
-export type CaseSummary = Case & OverdueSummary & { parent_name: string; plan_id: number | null };
+export type CaseSummary = Case &
+  OverdueSummary & { parent_name: string; plan_id: number | null; urgent_reasons: RedFlag[] };
 
 export type CaseList = { cases: CaseSummary[]; load: CuratorLoad; today: string };
 
@@ -266,7 +283,13 @@ export type CaseDetail = {
 
 export type ParentStep = Omit<PlanStep, "service_id" | "sector" | "depends_on" | "rationale" | "text_source">;
 
-export type ParentPlan = { case: Case; steps: ParentStep[]; overdue: OverdueSummary; today: string };
+export type ParentPlan = {
+  case: Case;
+  steps: ParentStep[];
+  overdue: OverdueSummary;
+  today: string;
+  urgent_reasons: RedFlag[];
+};
 
 export type Service = {
   service_id: string;
@@ -287,6 +310,7 @@ export type StepPatch = Partial<{
   due_date: string;
   rationale: string;
   parent_explanation: string;
+  parent_explanation_kk: string;
 }>;
 
 export type Escalation = {
@@ -317,6 +341,26 @@ export const myPlan = (caseId: number) => request<ParentPlan>(`/parent/cases/${c
 /** The parent marks a step of their approved plan done (or undoes their own mark). */
 export const markStep = (caseId: number, stepId: string, done: boolean) =>
   request<ParentPlan>(`/parent/cases/${caseId}/steps/${stepId}`, { method: "PATCH", body: JSON.stringify({ done }) });
+/** Downloads the approved plan's deadlines as an .ics file for the phone calendar. */
+export async function downloadCalendar(caseId: number, lang: "ru" | "kk") {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/parent/cases/${caseId}/calendar.ics?lang=${lang}`, { headers });
+  } catch {
+    throw new ApiError(translate(currentLang(), "error.network"), 0);
+  }
+  if (!res.ok) throw new ApiError(errorMessage(await res.json().catch(() => null), res.status), res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `aqylroute-plan-${caseId}.ics`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 /** After the last answer: builds the plan and sends it to the curator (the plan isn't returned). */
 export const submitInterview = (caseId: number) => request<Case>(`/parent/cases/${caseId}/plan`, post());
 

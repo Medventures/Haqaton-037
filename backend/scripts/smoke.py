@@ -62,6 +62,10 @@ def main() -> None:
         check(alikhan["worst_level"] == 1 and alikhan["overdue_count"] == 1, f"Алихан: one step overdue, level 1 on {today}")
         check(amina["worst_level"] == 2 and amina["overdue_count"] == 1, f"Амина: school enrolment overdue, level 2 on {today}")
         check(r.json()["load"]["norm_max"] == 30, "curator load against the 10–30 norm")
+        daniyar = cases.get("Данияр, 4 года")
+        check(bool(daniyar) and daniyar["urgent_reasons"] == ["regression"] and daniyar["status"] == "draft",
+              "Данияр: red flag, draft plan waiting for approval, listed first")
+        check(r.json()["cases"][0]["label"] == "Данияр, 4 года", "urgent case sorted to the top")
 
         r = api.get(f"/parent/cases/{amina['id']}", params={"today": today}, headers=as_parent)
         steps = r.json().get("steps", []) if r.status_code == 200 else []

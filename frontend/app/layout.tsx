@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Disclaimer } from "@/components/disclaimer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AqylRoute AI",
-  description: "Единый межведомственный маршрут для ребёнка с РАС",
+  description: "Единый межведомственный маршрут для ребёнка с особыми потребностями: медицина, образование, соцзащита",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -25,10 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <main className="flex-1">{children}</main>
-        <footer className="border-t px-4 py-3 text-center text-xs text-muted-foreground">
-          Сервис не ставит диагнозов и не заменяет консультацию специалиста. Данные в демо
-          синтетические.
-        </footer>
+        <Disclaimer />
       </body>
     </html>
   );

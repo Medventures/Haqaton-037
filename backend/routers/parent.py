@@ -2,9 +2,9 @@
 
 import copy
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, col, select
 
 from db import get_session
@@ -12,6 +12,7 @@ from models import Case, CaseStatus, Event, Plan
 from routers.plans import TodayQuery, find_step, mark_completion, save
 from schemas import CaseOut, ParentPlanOut, ParentStep, StepDoneIn
 from services import overdue, planner
+from services.calendar import plan_calendar
 from services.auth import CurrentParent
 
 router = APIRouter(prefix="/parent", tags=["parent"])
@@ -61,6 +62,7 @@ def _plan_out(case: Case, plan: Plan, today: date | None) -> ParentPlanOut:
         steps=[ParentStep.model_validate(s) for s in steps],  # drops the curator's rationale
         overdue=overdue.summary(plan.plan["steps"], today),
         today=today,
+        urgent_reasons=planner.red_flags(case.facts),
     )
 
 
@@ -69,6 +71,18 @@ def my_plan(case_id: int, session: SessionDep, user: CurrentParent, today: Today
     """403 unless it is the parent's own case and the curator has approved the plan."""
     case = _own_case(session, case_id, user.id)
     return _plan_out(case, _approved_plan(session, case), today)
+
+
+@router.get("/cases/{case_id}/calendar.ics", response_class=Response)
+def plan_ics(case_id: int, session: SessionDep, user: CurrentParent, lang: Literal["ru", "kk"] = "ru") -> Response:
+    """The approved plan's deadlines as an .ics file for the phone calendar (reminder 3 days before)."""
+    case = _own_case(session, case_id, user.id)
+    plan = _approved_plan(session, case)
+    return Response(
+        plan_calendar(case.id, case.label, plan.plan["steps"], lang),
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="aqylroute-plan-{case.id}.ics"'},
+    )
 
 
 @router.patch("/cases/{case_id}/steps/{step_id}", response_model=ParentPlanOut)

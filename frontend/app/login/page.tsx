@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, login } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useT();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export default function LoginPage() {
       await login(phone, password);
       router.replace("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Ошибка входа");
+      setError(err instanceof ApiError ? err.message : t("auth.login.failed"));
     } finally {
       setLoading(false);
     }
@@ -33,20 +35,20 @@ export default function LoginPage() {
 
   return (
     <AuthCard
-      title="Вход"
-      description="Войдите по номеру телефона и паролю"
+      title={t("auth.login.title")}
+      description={t("auth.login.description")}
       footer={
         <>
-          Нет аккаунта?{" "}
+          {t("auth.login.noAccount")}{" "}
           <Link href="/register" className="underline underline-offset-4">
-            Зарегистрироваться
+            {t("auth.login.toRegister")}
           </Link>
         </>
       }
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <div className="grid gap-2">
-          <Label htmlFor="phone">Телефон</Label>
+          <Label htmlFor="phone">{t("auth.phone")}</Label>
           <Input
             id="phone"
             type="tel"
@@ -58,7 +60,7 @@ export default function LoginPage() {
           />
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="password">Пароль</Label>
+          <Label htmlFor="password">{t("auth.password")}</Label>
           <Input
             id="password"
             type="password"
@@ -70,7 +72,7 @@ export default function LoginPage() {
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" disabled={loading}>
-          {loading ? "Входим…" : "Войти"}
+          {loading ? t("auth.login.submitting") : t("auth.login.submit")}
         </Button>
       </form>
     </AuthCard>

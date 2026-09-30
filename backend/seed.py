@@ -8,6 +8,7 @@ Run from backend/:
 Overdue is shown against the demo date (the curator's «Симулировать дату», passed as ?today=):
   Case A «Алихан, 3 года» — the ПМПК step is 5 days overdue.
   Case B «Амина, 6 лет»   — school enrolment (30 August) is 12 days overdue.
+  Case C «Данияр, 4 года» — a fresh interview with a red flag; the plan waits for the curator's approval.
 The school deadline is a fixed date, so the demo date is 11 September.
 Plans are built by the rule-based fallback, so seeding never calls OpenAI.
 """
@@ -47,6 +48,7 @@ CASE_A = {
     "goal": "kindergarten",
     "current_support": [],
     "has_curator": "none",
+    "red_flags": [],
 }
 
 # Case B «Амина, 6 лет»: disability registered, special kindergarten group, starting school next year.
@@ -60,12 +62,30 @@ CASE_B = {
     "current_support": ["KPPK"],
     "benefits_received": ["DISABILITY_BENEFIT", "SPECIAL_STATE_BENEFIT"],
     "has_curator": "social_worker",
+    "red_flags": [],
+}
+
+# Case C «Данияр, 4 года»: refused by a kindergarten, starting the disability route, and the parent
+# reports a loss of skills — the urgent badge and «к врачу» advice appear at once.
+CASE_C = {
+    "age_months": 48,
+    "region": "Алматы",
+    "has_doctor_conclusion": True,
+    "setting": "refused",
+    "documents_on_hand": [],
+    "seeking_disability": True,
+    "months_since_diagnosis": 6,
+    "goal": "kindergarten",
+    "current_support": [],
+    "has_curator": "none",
+    "red_flags": ["regression"],
 }
 
 # (label, facts, step that is late, days late, days from case start to the demo date)
 DEMO_CASES = [
     ("Алихан, 3 года", CASE_A, "PMPK_EXAM", 5, 35),  # ПМПК: 30 calendar days from the start
     ("Амина, 6 лет", CASE_B, "SPECIAL_SCHOOL_ENROLL", 12, 60),  # started mid-July, ПМПК done before 30.08
+    ("Данияр, 4 года", CASE_C, None, 0, 1),  # yesterday: draft plan, nothing late yet
 ]
 
 
@@ -145,24 +165,24 @@ def seed(session: Session, today: date) -> tuple[User, list[tuple[Case, Plan]], 
         run_interview(session, case, facts, start)
 
         content = planner.build_plan(case.facts, start, use_ai=False)
-        late = next(s for s in content["steps"] if s["service_id"] == late_step)
-        late_by = (demo_today - date.fromisoformat(late["due_date"])).days
-        assert late_by == days_late, f"{label}: {late_step} is {late_by} days late, expected {days_late}"
+        late = next((s for s in content["steps"] if s["service_id"] == late_step), None)
+        if late is not None:
+            late_by = (demo_today - date.fromisoformat(late["due_date"])).days
+            assert late_by == days_late, f"{label}: {late_step} is {late_by} days late, expected {days_late}"
         # Everything else due before the demo date is done, so exactly one step is overdue.
         for step in content["steps"]:
             if step is not late and date.fromisoformat(step["due_date"]) < demo_today:
                 step.update(status="done", completed_by="curator", completed_at=step["due_date"])
 
         plan = Plan(case_id=case.id, plan=content)
-        case.status = CaseStatus.approved
+        # A case with a late step is already running; the fresh one waits for the curator.
+        case.status = CaseStatus.approved if late is not None else CaseStatus.draft
         session.add_all([plan, case])
         session.flush()
-        session.add_all(
-            [
-                Event(case_id=case.id, plan_id=plan.id, kind="plan_generated", payload={"generator": "fallback"}),
-                Event(case_id=case.id, plan_id=plan.id, kind="plan_approved", payload={"seed": True}),
-            ]
-        )
+        events = [Event(case_id=case.id, plan_id=plan.id, kind="plan_generated", payload={"generator": "fallback"})]
+        if case.status == CaseStatus.approved:
+            events.append(Event(case_id=case.id, plan_id=plan.id, kind="plan_approved", payload={"seed": True}))
+        session.add_all(events)
         session.commit()
         session.refresh(plan)
         created.append((case, plan))
@@ -184,7 +204,9 @@ def main() -> None:
         for case, plan in created:
             steps = plan.plan["steps"]
             late = [s["service_id"] for s in steps if s["status"] != "done" and s["due_date"] < demo_today.isoformat()]
-            print(f"  case {case.id} «{case.label}»: {len(steps)} steps, approved, overdue on {demo_today}: {late}")
+            flags = case.facts.get("red_flags") or []
+            print(f"  case {case.id} «{case.label}»: {len(steps)} steps, {case.status}, "
+                  f"overdue on {demo_today}: {late}{f', red flags: {flags}' if flags else ''}")
         print(f"Curator view: pass ?today={demo_today} («Симулировать дату»).")
 
 

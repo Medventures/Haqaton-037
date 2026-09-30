@@ -28,6 +28,7 @@ from services.catalog import (
     FactKey,
     dont_know_value,
     is_valid_fact_value,
+    kk_question,
     option_value,
 )
 from services.eligibility import (
@@ -46,7 +47,7 @@ MIN_QUESTIONS = 8
 MAX_QUESTIONS = 12
 DONT_KNOW = "Не знаю"
 
-FIXED_SLOTS = ["age_months", "region", "has_doctor_conclusion", "setting", "documents_on_hand"]
+FIXED_SLOTS = ["age_months", "region", "has_doctor_conclusion", "setting", "documents_on_hand", "red_flags"]
 FILLER_SLOTS = ["preferred_channel", "has_curator", "language"]
 
 # Functional scales describe how the child functions: the AI may parse them only when they are the
@@ -83,6 +84,9 @@ class Question:
     hint: str
     kind: Kind
     options: list[str]
+    text_kk: str | None = None
+    hint_kk: str | None = None
+    options_kk: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -154,21 +158,32 @@ def _pick_group(slot: str, profile: Profile, *, strict: bool) -> dict[str, Any] 
 
 
 def _question(case_id: int, group: dict[str, Any]) -> Question:
+    index = variant_index(case_id, group)
+    kk = kk_question(group["group_id"])
     return Question(
         slot=group["slot"],
         group_id=group["group_id"],
-        text=variant_text(case_id, group),
+        text=group["variants"][index],
         hint=group.get("hint", ""),
         kind=_KINDS[group.get("type")],
         options=list(group.get("options", [])),
+        text_kk=kk["variants"][index] if kk else None,
+        hint_kk=(kk.get("hint") or None) if kk else None,
+        options_kk=list(kk.get("options", [])) if kk else None,
     )
 
 
-def variant_text(case_id: int, group: dict[str, Any]) -> str:
-    """Deterministic per case and slot (questions.json `selection`): a returning parent sees the same text."""
-    variants = group["variants"]
+def variant_index(case_id: int, group: dict[str, Any]) -> int:
+    """Deterministic per case and slot (questions.json `selection`): a returning parent sees the same text.
+
+    The Kazakh variant with the same index is shown in Kazakh, so switching language keeps the question.
+    """
     digest = hashlib.sha256(f"{case_id}:{group['slot']}".encode()).hexdigest()
-    return variants[int(digest, 16) % len(variants)]
+    return int(digest, 16) % len(group["variants"])
+
+
+def variant_text(case_id: int, group: dict[str, Any]) -> str:
+    return group["variants"][variant_index(case_id, group)]
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +238,8 @@ def parse_answer(question: Question, answer: AnswerIn, known: set[str], today: d
                 return {slot: _checked(slot, months)}, text
         case "choice":
             index = _match_option(text, question.options)
+            if index is None and question.options_kk:
+                index = _match_option(text, question.options_kk)
             if index is not None:
                 return {slot: option_value(group_id, index)}, text
 

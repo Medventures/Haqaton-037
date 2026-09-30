@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, register, sendRegisterCode } from "@/lib/api";
+import type { Key } from "@/lib/dictionary";
+import { useT } from "@/lib/i18n";
 
 type Form = {
   last_name: string;
@@ -19,17 +21,18 @@ type Form = {
   password2: string;
 };
 
-const FIELDS: { key: keyof Form; label: string; type?: string; autoComplete: string; required: boolean }[] = [
-  { key: "last_name", label: "Фамилия", autoComplete: "family-name", required: true },
-  { key: "first_name", label: "Имя", autoComplete: "given-name", required: true },
-  { key: "middle_name", label: "Отчество (если есть)", autoComplete: "additional-name", required: false },
-  { key: "phone", label: "Телефон", type: "tel", autoComplete: "tel", required: true },
-  { key: "password", label: "Пароль (минимум 8 символов)", type: "password", autoComplete: "new-password", required: true },
-  { key: "password2", label: "Повторите пароль", type: "password", autoComplete: "new-password", required: true },
+const FIELDS: { key: keyof Form; label: Key; type?: string; autoComplete: string; required: boolean }[] = [
+  { key: "last_name", label: "auth.register.lastName", autoComplete: "family-name", required: true },
+  { key: "first_name", label: "auth.register.firstName", autoComplete: "given-name", required: true },
+  { key: "middle_name", label: "auth.register.middleName", autoComplete: "additional-name", required: false },
+  { key: "phone", label: "auth.phone", type: "tel", autoComplete: "tel", required: true },
+  { key: "password", label: "auth.register.password", type: "password", autoComplete: "new-password", required: true },
+  { key: "password2", label: "auth.register.password2", type: "password", autoComplete: "new-password", required: true },
 ];
 
 export default function RegisterPage() {
   const router = useRouter();
+  const t = useT();
   const [form, setForm] = useState<Form>({
     last_name: "",
     first_name: "",
@@ -46,8 +49,8 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
   }, [resendIn]);
 
   async function requestCode() {
@@ -58,7 +61,7 @@ export default function RegisterPage() {
       setResendIn(res.resend_in);
       setStep("code");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не удалось отправить код");
+      setError(err instanceof ApiError ? err.message : t("auth.register.sendFailed"));
     } finally {
       setLoading(false);
     }
@@ -66,8 +69,8 @@ export default function RegisterPage() {
 
   async function onSubmitForm(e: React.FormEvent) {
     e.preventDefault();
-    if (form.password.length < 8) return setError("Пароль должен быть не короче 8 символов");
-    if (form.password !== form.password2) return setError("Пароли не совпадают");
+    if (form.password.length < 8) return setError(t("auth.register.short"));
+    if (form.password !== form.password2) return setError(t("auth.register.mismatch"));
     await requestCode();
   }
 
@@ -86,7 +89,7 @@ export default function RegisterPage() {
       });
       router.replace("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Ошибка регистрации");
+      setError(err instanceof ApiError ? err.message : t("auth.register.failed"));
     } finally {
       setLoading(false);
     }
@@ -94,10 +97,10 @@ export default function RegisterPage() {
 
   if (step === "code") {
     return (
-      <AuthCard title="Подтверждение номера" description={`Мы отправили SMS с кодом на ${form.phone}`}>
+      <AuthCard title={t("auth.code.title")} description={t("auth.code.description", { phone: form.phone })}>
         <form onSubmit={onSubmitCode} className="flex flex-col gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="code">Код из SMS</Label>
+            <Label htmlFor="code">{t("auth.code.label")}</Label>
             <Input
               id="code"
               inputMode="numeric"
@@ -113,7 +116,7 @@ export default function RegisterPage() {
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={loading || code.length !== 6}>
-            {loading ? "Проверяем…" : "Подтвердить"}
+            {loading ? t("auth.code.checking") : t("auth.code.submit")}
           </Button>
           <div className="flex justify-between text-sm">
             <button
@@ -125,7 +128,7 @@ export default function RegisterPage() {
                 setError(null);
               }}
             >
-              Изменить данные
+              {t("auth.code.edit")}
             </button>
             <button
               type="button"
@@ -133,7 +136,7 @@ export default function RegisterPage() {
               disabled={resendIn > 0 || loading}
               onClick={requestCode}
             >
-              {resendIn > 0 ? `Отправить снова через ${resendIn} с` : "Отправить код снова"}
+              {resendIn > 0 ? t("auth.code.resendIn", { n: resendIn }) : t("auth.code.resend")}
             </button>
           </div>
         </form>
@@ -143,13 +146,13 @@ export default function RegisterPage() {
 
   return (
     <AuthCard
-      title="Регистрация"
-      description="Номер телефона подтверждается кодом из SMS"
+      title={t("auth.register.title")}
+      description={t("auth.register.description")}
       footer={
         <>
-          Уже есть аккаунт?{" "}
+          {t("auth.register.hasAccount")}{" "}
           <Link href="/login" className="underline underline-offset-4">
-            Войти
+            {t("auth.register.toLogin")}
           </Link>
         </>
       }
@@ -157,7 +160,7 @@ export default function RegisterPage() {
       <form onSubmit={onSubmitForm} className="flex flex-col gap-4">
         {FIELDS.map((f) => (
           <div key={f.key} className="grid gap-2">
-            <Label htmlFor={f.key}>{f.label}</Label>
+            <Label htmlFor={f.key}>{t(f.label)}</Label>
             <Input
               id={f.key}
               type={f.type ?? "text"}
@@ -171,8 +174,9 @@ export default function RegisterPage() {
         ))}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" disabled={loading}>
-          {loading ? "Отправляем код…" : "Получить код"}
+          {loading ? t("auth.register.sending") : t("auth.register.getCode")}
         </Button>
+        <p className="text-xs text-muted-foreground">{t("auth.register.parentsOnly")}</p>
       </form>
     </AuthCard>
   );

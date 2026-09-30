@@ -1,5 +1,7 @@
-import type { CaseStatus, OverdueLevel } from "@/lib/api";
-import { CASE_STATUS_LABEL } from "@/lib/format";
+"use client";
+
+import type { CaseStatus, OverdueLevel, RedFlag } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export function Badge({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -16,18 +18,30 @@ export function Badge({ className, children }: { className?: string; children: R
 }
 
 export function CaseStatusBadge({ status }: { status: CaseStatus }) {
+  const t = useT();
   const tone = {
     interview: "border-border text-muted-foreground",
     draft: "border-sky-200 bg-sky-50 text-sky-800",
     approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   }[status];
-  return <Badge className={tone}>{CASE_STATUS_LABEL[status]}</Badge>;
+  return <Badge className={tone}>{t(`caseStatus.${status}`)}</Badge>;
 }
 
 /** Curator view only: yellow for 1–7 days late, red for more. */
 export function OverdueBadge({ level, count, days }: { level: OverdueLevel; count?: number; days?: number }) {
+  const t = useT();
   if (level === 0) return null;
   const tone = level === 1 ? "border-amber-300 bg-amber-50 text-amber-800" : "border-red-300 bg-red-50 text-red-700";
-  const text = days !== undefined ? `Просрочка ${days} дн.` : `Просрочено: ${count}`;
+  const text = days !== undefined ? t("overdue.days", { n: days }) : t("overdue.count", { n: count ?? 0 });
   return <Badge className={tone}>{text}</Badge>;
+}
+
+export function UrgentBadge({ reasons }: { reasons: RedFlag[] }) {
+  const t = useT();
+  if (reasons.length === 0) return null;
+  return (
+    <Badge className="border-red-400 bg-red-600 text-white">
+      <span title={reasons.map((r) => t(`red.${r}`)).join(", ")}>{t("urgent.badge")}</span>
+    </Badge>
+  );
 }

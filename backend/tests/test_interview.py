@@ -47,7 +47,7 @@ def _run(session: Session, target: dict[str, Any]) -> tuple[models.Case, list[st
 def test_scripted_interview(session, target):
     case, asked = _run(session, target)
     assert interview.MIN_QUESTIONS <= len(asked) <= interview.MAX_QUESTIONS
-    assert asked[:5] == interview.FIXED_SLOTS
+    assert asked[: len(interview.FIXED_SLOTS)] == interview.FIXED_SLOTS
     assert len(set(asked)) == len(asked)
     # Every fact the interview asked about is saved as the parent answered it.
     for slot in asked:
@@ -139,3 +139,34 @@ def test_api_flow(session):
         assert client.get("/cases/9999/interview").status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_red_flags_are_asked_and_reported(session):  # noqa: F811
+    case, asked = _run(session, {**CASE_A, "red_flags": ["seizures"]})
+    assert "red_flags" in asked and case.facts["red_flags"] == ["seizures"]
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_current_user] = lambda: session.get(models.User, 1)
+    try:
+        state = TestClient(app).get(f"/cases/{case.id}/interview").json()
+        assert state["urgent_reasons"] == ["seizures"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_questions_carry_kazakh_text():
+    q = interview.next_question(5, {}, [], TODAY)
+    group = catalog.QUESTION_GROUPS[q.group_id]
+    kk = catalog.KK_QUESTIONS[q.group_id]
+    assert q.text_kk == kk["variants"][group["variants"].index(q.text)]  # same variant index
+    choice = interview.next_question(1, {"age_months": 36, "region": "Караганда"}, ["age_months", "region"], TODAY)
+    assert choice.options_kk and len(choice.options_kk) == len(choice.options)
+    # A Kazakh option typed as text is understood without the AI.
+    parsed, _ = interview.parse_answer(choice, AnswerIn(slot=choice.slot, text=choice.options_kk[0]), set(), TODAY)
+    assert parsed == {"has_doctor_conclusion": True}
+
+
+def test_every_bank_a_group_is_translated():
+    bank_a = [g for g in catalog.QUESTION_GROUPS.values() if g["bank"] == "A"]
+    assert all(catalog.kk_question(g["group_id"]) for g in bank_a)
+    assert all(catalog.kk_service(code, "title") for code in catalog.SERVICES)
+    assert all(catalog.kk_document(code) for code in catalog.DOCUMENTS)

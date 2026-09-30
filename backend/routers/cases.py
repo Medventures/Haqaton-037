@@ -46,6 +46,7 @@ def _interview_out(session: Session, case: Case) -> InterviewOut:
         min_questions=interview.MIN_QUESTIONS,
         max_questions=interview.MAX_QUESTIONS,
         done=question is None,
+        urgent_reasons=planner.red_flags(case.facts),
     )
 
 
@@ -122,9 +123,11 @@ def list_cases(session: SessionDep, user: CurrentCurator, today: TodayQuery = No
                 **stats,
                 parent_name=_full_name(parent),
                 plan_id=plan.id if plan else None,
+                urgent_reasons=planner.red_flags(case.facts),
             )
         )
-    cases.sort(key=lambda c: (-c.worst_level, -c.overdue_count, -c.created_at.timestamp()))
+    # Red flags first, then the most overdue.
+    cases.sort(key=lambda c: (not c.urgent_reasons, -c.worst_level, -c.overdue_count, -c.created_at.timestamp()))
     return CaseListOut(cases=cases, load=overdue.curator_load(active), today=today)
 
 

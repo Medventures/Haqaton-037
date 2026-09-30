@@ -45,7 +45,11 @@
     },
     "has_curator": { "type": "enum", "values": ["social_worker", "parent_org", "none", "unknown_whom"] },
     "preferred_channel": { "type": "enum", "values": ["sms", "whatsapp", "app", "none"] },
-    "language": { "type": "enum", "values": ["kk", "ru"] }
+    "language": { "type": "enum", "values": ["kk", "ru"] },
+    "red_flags": {
+      "type": "set",
+      "values": ["regression", "self_harm", "seizures", "aggression"]
+    }
   },
   "derived": {
     "has_pmpk_conclusion": { "fact": "documents_on_hand", "contains": "PMPK_CONCLUSION" },
@@ -93,6 +97,7 @@
     "urgent.general": [["doc_expiring"], ["refused_somewhere"], ["commission_soon"], []],
     "curator.all": ["social_worker", "parent_org", "none", "unknown_whom"],
     "channel.all": ["sms", "whatsapp", "app", "none"],
-    "language.all": ["kk", "ru"]
+    "language.all": ["kk", "ru"],
+    "red_flags.all": [["regression"], ["self_harm"], ["seizures"], ["aggression"], []]
   }
 }

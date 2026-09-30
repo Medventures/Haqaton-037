@@ -30,10 +30,12 @@ def _fake_ai(monkeypatch, *responses):
     return calls
 
 
-def _texts(codes, text="Сначала запишитесь на приём, это откроет следующие шаги.", priority=2):
+def _texts(codes, text="Сначала запишитесь на приём, это откроет следующие шаги.", priority=2,
+           text_kk="Алдымен қабылдауға жазылыңыз, бұл келесі қадамдарды ашады."):
     return planner.PlanText(
         steps=[
-            planner.StepText(service_id=c, priority=priority, rationale=f"Нужно: {c}", parent_explanation=text)
+            planner.StepText(service_id=c, priority=priority, rationale=f"Нужно: {c}", parent_explanation=text,
+                             parent_explanation_kk=text_kk)
             for c in codes
         ]
     )
@@ -126,6 +128,22 @@ def test_diagnosis_in_ai_text_retries_then_falls_back(monkeypatch):
     good = _texts(codes)
     calls = _fake_ai(monkeypatch, bad, good)
     assert planner.build_plan(CASE_B, START)["generator"] == "ai" and len(calls) == 2
+
+
+def test_kazakh_diagnosis_in_ai_text_falls_back(monkeypatch):
+    codes = _codes(CASE_B)
+    bad = _texts(codes, text_kk="Балада аутизм, ауыр дәрежесі.")
+    calls = _fake_ai(monkeypatch, bad, bad)
+    plan = planner.build_plan(CASE_B, START)
+    assert len(calls) == 2 and all(s["text_source"] == "fallback" for s in plan["steps"])
+    assert not any("аутизм" in (s["parent_explanation_kk"] or "") for s in plan["steps"])
+
+
+def test_ai_kazakh_text_is_kept(monkeypatch):
+    _fake_ai(monkeypatch, _texts(_codes(CASE_B)))
+    plan = planner.build_plan(CASE_B, START)
+    assert all(s["parent_explanation_kk"].startswith("Алдымен") for s in plan["steps"])
+    assert all(s["deadline_note_kk"] for s in plan["steps"])
 
 
 def test_fallback_parent_texts_have_no_team_notes():

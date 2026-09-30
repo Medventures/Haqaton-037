@@ -4,15 +4,17 @@ import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/lib/i18n";
 import { demoDate, realToday } from "@/lib/sim-date";
 import { cn } from "@/lib/utils";
 
 /** «Симулировать дату»: overdue is computed against this date (?today=). */
 export function SimDateControl({ value, onChange }: { value: string; onChange: (date: string) => void }) {
+  const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
       <label htmlFor="sim-date" className="font-medium">
-        Симулировать дату
+        {t("sim.label")}
       </label>
       <Input
         id="sim-date"
@@ -22,10 +24,10 @@ export function SimDateControl({ value, onChange }: { value: string; onChange: (
         onChange={(e) => e.target.value && onChange(e.target.value)}
       />
       <Button variant="ghost" size="sm" onClick={() => onChange(demoDate())}>
-        Демо-дата
+        {t("sim.demo")}
       </Button>
       <Button variant="ghost" size="sm" onClick={() => onChange(realToday())}>
-        Сегодня
+        {t("sim.today")}
       </Button>
     </div>
   );
@@ -62,7 +64,7 @@ export function Modal({
       >
         <div className="mb-3 flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold">{title}</h2>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Закрыть">
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="✕">
             ✕
           </Button>
         </div>

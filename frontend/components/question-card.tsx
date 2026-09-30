@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Answer, Question } from "@/lib/api";
+import { pick, useLang, useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /** One interview question: option buttons, «Не знаю», and a free-text answer. Remount per question (key). */
@@ -25,6 +26,8 @@ export function QuestionCard({
   error: string | null;
   onAnswer: (answer: Answer) => void;
 }) {
+  const t = useT();
+  const [lang] = useLang();
   const { slot, kind } = question;
   const [picked, setPicked] = useState<number[]>([]);
   const [years, setYears] = useState("");
@@ -33,6 +36,9 @@ export function QuestionCard({
   const [freeText, setFreeText] = useState(kind === "text");
 
   const progress = Math.min(100, Math.round((answered / max) * 100));
+  // Options keep their index across languages, so the answer is the same whichever is shown.
+  const options = lang === "kk" && question.options_kk ? question.options_kk : question.options;
+  const hint = pick(lang, question.hint, question.hint_kk);
 
   function submitNumber(e: React.FormEvent) {
     e.preventDefault();
@@ -58,18 +64,16 @@ export function QuestionCard({
           >
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <span className="text-xs text-muted-foreground">
-            {answered} из {max}
-          </span>
+          <span className="text-xs text-muted-foreground">{t("interview.progress", { n: answered, max })}</span>
         </div>
-        <CardTitle className="text-lg">{question.text}</CardTitle>
-        {question.hint && <CardDescription>{question.hint}</CardDescription>}
+        <CardTitle className="text-lg">{pick(lang, question.text, question.text_kk)}</CardTitle>
+        {hint && <CardDescription>{hint}</CardDescription>}
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
         {kind === "choice" && (
           <div className="flex flex-col gap-2">
-            {question.options.map((option, i) => (
+            {options.map((option, i) => (
               <Button
                 key={option}
                 variant="outline"
@@ -86,7 +90,7 @@ export function QuestionCard({
 
         {kind === "multi" && (
           <div className="flex flex-col gap-2">
-            {question.options.map((option, i) => {
+            {options.map((option, i) => {
               const on = picked.includes(i);
               return (
                 <Button
@@ -113,7 +117,7 @@ export function QuestionCard({
               disabled={sending || picked.length === 0}
               onClick={() => onAnswer({ slot, options: picked })}
             >
-              Далее
+              {t("common.next")}
             </Button>
           </div>
         )}
@@ -122,7 +126,7 @@ export function QuestionCard({
           <form onSubmit={submitNumber} className="flex flex-wrap items-end gap-3">
             {kind === "age" && (
               <div className="grid gap-1.5">
-                <Label htmlFor="years">Лет</Label>
+                <Label htmlFor="years">{t("interview.years")}</Label>
                 <Input
                   id="years"
                   type="number"
@@ -136,7 +140,7 @@ export function QuestionCard({
               </div>
             )}
             <div className="grid gap-1.5">
-              <Label htmlFor="months">Месяцев</Label>
+              <Label htmlFor="months">{t("interview.months")}</Label>
               <Input
                 id="months"
                 type="number"
@@ -149,14 +153,14 @@ export function QuestionCard({
               />
             </div>
             <Button type="submit" size="lg" disabled={sending || (!years && !months)}>
-              Далее
+              {t("common.next")}
             </Button>
           </form>
         )}
 
         {freeText && (
           <form onSubmit={submitText} className="flex flex-col gap-2">
-            <Label htmlFor="free-text">{kind === "text" ? "Ваш ответ" : "Ответьте своими словами"}</Label>
+            <Label htmlFor="free-text">{kind === "text" ? t("interview.yourAnswer") : t("interview.freeText")}</Label>
             <textarea
               id="free-text"
               rows={kind === "text" ? 1 : 3}
@@ -167,7 +171,7 @@ export function QuestionCard({
               autoFocus
             />
             <Button type="submit" size="lg" disabled={sending || !text.trim()}>
-              Далее
+              {t("common.next")}
             </Button>
           </form>
         )}
@@ -176,11 +180,11 @@ export function QuestionCard({
 
         <div className="flex flex-wrap gap-2 border-t pt-3">
           <Button variant="secondary" disabled={sending} onClick={() => onAnswer({ slot, dont_know: true })}>
-            {question.dont_know_label}
+            {pick(lang, question.dont_know_label, question.dont_know_label_kk)}
           </Button>
           {kind !== "text" && (
             <Button variant="ghost" disabled={sending} onClick={() => setFreeText(!freeText)}>
-              {freeText ? "Выбрать из вариантов" : "Ответить своими словами"}
+              {freeText ? t("interview.toOptions") : t("interview.toFreeText")}
             </Button>
           )}
         </div>

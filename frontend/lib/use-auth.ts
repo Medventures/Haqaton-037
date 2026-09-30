@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, getMe, getToken, logout, type User } from "@/lib/api";
+import { currentLang, translate } from "@/lib/i18n";
 
 /** The logged-in user, or null while loading. Sends the visitor to /login without a valid token. */
 export function useRequireAuth(): { user: User | null; error: string | null } {
@@ -23,7 +24,7 @@ export function useRequireAuth(): { user: User | null; error: string | null } {
           logout();
           router.replace("/login");
         } else {
-          setError(err instanceof ApiError ? err.message : "Ошибка загрузки");
+          setError(err instanceof ApiError ? err.message : translate(currentLang(), "common.error"));
         }
       });
   }, [router]);

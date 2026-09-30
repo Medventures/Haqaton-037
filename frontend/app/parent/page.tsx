@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createCase, myCases, type Case } from "@/lib/api";
 import { errorText, formatDate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 
 export default function ParentPage() {
   return <AppShell role="parent">{() => <MyCases />}</AppShell>;
@@ -19,6 +20,7 @@ export default function ParentPage() {
 
 function MyCases() {
   const router = useRouter();
+  const t = useT();
   const [cases, setCases] = useState<Case[] | null>(null);
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ function MyCases() {
   useEffect(() => {
     myCases()
       .then(setCases)
-      .catch((err) => setError(errorText(err)));
+      .catch((err) => setError(errorText(err, "")));
   }, []);
 
   async function start(e: React.FormEvent) {
@@ -35,10 +37,10 @@ function MyCases() {
     setError(null);
     setStarting(true);
     try {
-      const state = await createCase(label.trim() || "Мой ребёнок");
+      const state = await createCase(label.trim() || t("parent.new.defaultLabel"));
       router.push(`/parent/${state.case.id}`);
     } catch (err) {
-      setError(errorText(err, "Не удалось начать интервью"));
+      setError(errorText(err, t("parent.new.failed")));
       setStarting(false);
     }
   }
@@ -46,39 +48,37 @@ function MyCases() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Мои обращения</h1>
-        <p className="text-sm text-muted-foreground">
-          Ответьте на несколько вопросов — мы составим пошаговый план, а куратор его проверит.
-        </p>
+        <h1 className="text-xl font-semibold">{t("parent.cases.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("parent.cases.text")}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Новое обращение</CardTitle>
-          <CardDescription>8–12 вопросов, около 5 минут. На любой вопрос можно ответить «Не знаю».</CardDescription>
+          <CardTitle>{t("parent.new.title")}</CardTitle>
+          <CardDescription>{t("parent.new.text")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={start} className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="grid flex-1 gap-2">
-              <Label htmlFor="label">Как обращаться к ребёнку</Label>
+              <Label htmlFor="label">{t("parent.new.label")}</Label>
               <Input
                 id="label"
-                placeholder="Например: Алихан"
+                placeholder={t("parent.new.placeholder")}
                 maxLength={100}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
             </div>
             <Button type="submit" size="lg" disabled={starting}>
-              {starting ? "Начинаем…" : "Начать интервью"}
+              {starting ? t("parent.new.starting") : t("parent.new.start")}
             </Button>
           </form>
         </CardContent>
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {cases === null && !error && <p className="text-sm text-muted-foreground">Загрузка…</p>}
-      {cases?.length === 0 && <p className="text-sm text-muted-foreground">Обращений пока нет.</p>}
+      {cases === null && !error && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
+      {cases?.length === 0 && <p className="text-sm text-muted-foreground">{t("parent.cases.empty")}</p>}
       {cases && cases.length > 0 && (
         <ul className="flex flex-col gap-2">
           {cases.map((c) => (
@@ -89,7 +89,7 @@ function MyCases() {
               >
                 <div>
                   <p className="font-medium">{c.label}</p>
-                  <p className="text-xs text-muted-foreground">от {formatDate(c.created_at)}</p>
+                  <p className="text-xs text-muted-foreground">{t("common.from", { date: formatDate(c.created_at) })}</p>
                 </div>
                 <CaseStatusBadge status={c.status} />
               </Link>

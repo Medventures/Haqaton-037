@@ -72,7 +72,8 @@ def update_step(
     plan, case = _load(session, plan_id)
     content = copy.deepcopy(plan.plan)
     step = find_step(content, step_id)
-    if body.parent_explanation and contains_diagnosis(body.parent_explanation):
+    parent_texts = [t for t in (body.parent_explanation, body.parent_explanation_kk) if t]
+    if any(contains_diagnosis(t) for t in parent_texts):
         # The same filter as for AI text: parents never see a diagnosis or a severity.
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -85,14 +86,14 @@ def update_step(
         if new is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{field} не может быть пустым")
         new = new.isoformat() if isinstance(new, date) else new
-        if step[field] != new:
-            changes[field] = [step[field], new]
+        if step.get(field) != new:
+            changes[field] = [step.get(field), new]
             step[field] = new
     if "due_date" in changes:
-        step["deadline_note"] = "Срок изменён куратором"
+        step["deadline_note"], step["deadline_note_kk"] = planner.CURATOR_DATE_NOTE, planner.CURATOR_DATE_NOTE_KK
     if "status" in changes:
         mark_completion(step, "curator" if step["status"] == "done" else None)
-    if {"rationale", "parent_explanation"} & changes.keys():
+    if {"rationale", "parent_explanation", "parent_explanation_kk"} & changes.keys():
         step["text_source"] = "curator"
     if changes:
         if {"priority", "due_date"} & changes.keys():

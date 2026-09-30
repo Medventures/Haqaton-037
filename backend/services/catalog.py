@@ -15,10 +15,16 @@ def _load(name: str) -> dict[str, Any]:
     return json.loads((DATA_DIR / name).read_text(encoding="utf-8"))
 
 
+def _load_optional(name: str) -> dict[str, Any]:
+    path = DATA_DIR / name
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
 _services_raw = _load("services.json")
 _facts_raw = _load("facts.json")
 _rules_raw = _load("rules.json")
 _questions_raw = _load("questions.json")
+_kk_raw = _load_optional("kk.json")  # Kazakh texts; anything missing falls back to Russian
 
 CATALOG_META: dict[str, Any] = _services_raw["_meta"]
 SERVICES: dict[str, dict[str, Any]] = {s["service_code"]: s for s in _services_raw["services"]}
@@ -34,6 +40,10 @@ RULES: dict[str, dict[str, Any]] = _rules_raw["services"]
 QUESTION_GROUPS: dict[str, dict[str, Any]] = {g["group_id"]: g for g in _questions_raw["groups"]}
 QUESTIONS_META: dict[str, Any] = _questions_raw["_meta"]
 
+KK_SERVICES: dict[str, dict[str, str]] = _kk_raw.get("services", {})
+KK_DOCUMENTS: dict[str, dict[str, str]] = _kk_raw.get("documents", {})
+KK_QUESTIONS: dict[str, dict[str, Any]] = _kk_raw.get("questions", {})
+
 # Enums built from the catalog, so LLM structured outputs cannot return IDs outside it (core rule 4).
 ServiceId = StrEnum("ServiceId", [(code, code) for code in SERVICES])
 FactKey = StrEnum("FactKey", [(key, key) for key in FACTS])
@@ -41,6 +51,26 @@ SlotId = StrEnum(
     "SlotId",
     [(s, s) for s in dict.fromkeys(g["slot"] for g in QUESTION_GROUPS.values() if g["bank"] == "A")],
 )
+
+
+def kk_service(code: str, field: str) -> str | None:
+    """Kazakh `title`, `provider_org` or `result` of a service, or None."""
+    return KK_SERVICES.get(code, {}).get(field) or None
+
+
+def kk_document(doc_code: str) -> str | None:
+    return KK_DOCUMENTS.get(doc_code, {}).get("title") or None
+
+
+def kk_question(group_id: str) -> dict[str, Any] | None:
+    """Kazakh variants/options/hint of a question group, only if they line up with the Russian ones."""
+    kk = KK_QUESTIONS.get(group_id)
+    group = QUESTION_GROUPS[group_id]
+    if not kk or len(kk.get("variants", [])) != len(group["variants"]):
+        return None
+    if len(kk.get("options", [])) != len(group.get("options", [])):
+        return None
+    return kk
 
 
 def option_value(group_id: str, index: int) -> Any:
