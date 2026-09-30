@@ -59,6 +59,11 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
+# Step text limits, shared by the AI output check (planner) and curator edits.
+MAX_RATIONALE = 400
+MAX_EXPLANATION = 600
+
+
 class CaseCreate(BaseModel):
     label: str = Field(default="Мой ребёнок", min_length=1, max_length=100)
 
@@ -133,12 +138,20 @@ class PlanStep(BaseModel):
     priority: int
     rationale: str  # for the curator
     parent_explanation: str
-    text_source: Literal["ai", "fallback"]
+    text_source: Literal["ai", "fallback", "curator"]
     warning: str | None
     completed_by: Literal["parent", "curator"] | None = None  # who marked the step done
     completed_at: str | None = None  # YYYY-MM-DD
     days_overdue: int = 0  # computed on read against ?today=
     overdue_level: int = 0  # 0 on time, 1 for 1–7 days late, 2 for more
+
+
+class RemovedStep(BaseModel):
+    service_id: ServiceId
+    title: str
+    reason: str
+    removed_at: str  # YYYY-MM-DD
+    removed_by: int | None
 
 
 class PlanContent(BaseModel):
@@ -148,6 +161,7 @@ class PlanContent(BaseModel):
     model: str | None
     steps: list[PlanStep]
     undecided: list[ServiceId]  # services unknown facts keep open, for the curator
+    removed: list[RemovedStep] = []  # steps the curator took out, with the reason
 
 
 class OverdueSummary(BaseModel):
@@ -174,12 +188,25 @@ class StepPatch(BaseModel):
     status: StepStatus | None = None
     priority: Literal[1, 2, 3] | None = None
     due_date: date | None = None
+    rationale: str | None = Field(default=None, min_length=1, max_length=MAX_RATIONALE)  # curator-only note
+    parent_explanation: str | None = Field(default=None, min_length=1, max_length=MAX_EXPLANATION)
+
+    @field_validator("rationale", "parent_explanation")
+    @classmethod
+    def _strip(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("текст не может быть пустым")
+        return v.strip() if v is not None else None
 
     @model_validator(mode="after")
     def _something(self) -> "StepPatch":
         if not self.model_fields_set:
             raise ValueError("nothing to change")
         return self
+
+
+class StepRemove(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
 
 
 class StepDoneIn(BaseModel):

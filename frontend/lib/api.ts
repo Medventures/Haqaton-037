@@ -185,12 +185,20 @@ export type PlanStep = {
   priority: number;
   rationale: string;
   parent_explanation: string;
-  text_source: "ai" | "fallback";
+  text_source: "ai" | "fallback" | "curator";
   warning: string | null;
   completed_by: "parent" | "curator" | null;
   completed_at: string | null;
   days_overdue: number;
   overdue_level: OverdueLevel;
+};
+
+export type RemovedStep = {
+  service_id: string;
+  title: string;
+  reason: string;
+  removed_at: string;
+  removed_by: number | null;
 };
 
 export type OverdueSummary = {
@@ -211,6 +219,7 @@ export type Plan = {
     model: string | null;
     steps: PlanStep[];
     undecided: string[];
+    removed: RemovedStep[];
   };
   overdue: OverdueSummary;
   today: string;
@@ -272,7 +281,13 @@ export type Service = {
   ui_note: string | null;
 };
 
-export type StepPatch = Partial<{ status: StepStatus; priority: 1 | 2 | 3; due_date: string }>;
+export type StepPatch = Partial<{
+  status: StepStatus;
+  priority: 1 | 2 | 3;
+  due_date: string;
+  rationale: string;
+  parent_explanation: string;
+}>;
 
 export type Escalation = {
   step_id: string;
@@ -318,6 +333,11 @@ export const updateStep = (planId: number, stepId: string, patch: StepPatch, tod
   });
 export const addStep = (planId: number, serviceId: string, today?: string) =>
   request<Plan & { added: string[] }>(withToday(`/plans/${planId}/steps`, today), post({ service_id: serviceId }));
+export const removeStep = (planId: number, stepId: string, reason: string, today?: string) =>
+  request<Plan>(withToday(`/plans/${planId}/steps/${stepId}`, today), {
+    method: "DELETE",
+    body: JSON.stringify({ reason }),
+  });
 export const approvePlan = (planId: number, today?: string) =>
   request<Plan>(withToday(`/plans/${planId}/approve`, today), post());
 export const escalateStep = (planId: number, stepId: string, today?: string) =>

@@ -9,8 +9,9 @@ from sqlmodel import Session
 
 from db import get_session
 from models import Case, CaseStatus, Event, Plan
-from schemas import EscalationOut, PlanOut, StepAdd, StepAddOut, StepPatch
+from schemas import EscalationOut, PlanOut, StepAdd, StepAddOut, StepPatch, StepRemove
 from services import overdue, planner
+from services.safety import contains_diagnosis
 from services.auth import CurrentCurator
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -71,6 +72,12 @@ def update_step(
     plan, case = _load(session, plan_id)
     content = copy.deepcopy(plan.plan)
     step = find_step(content, step_id)
+    if body.parent_explanation and contains_diagnosis(body.parent_explanation):
+        # The same filter as for AI text: parents never see a diagnosis or a severity.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "В тексте для родителя нельзя называть диагноз, степень или тяжесть состояния",
+        )
 
     changes: dict[str, list[Any]] = {}
     for field in body.model_fields_set:
@@ -85,6 +92,8 @@ def update_step(
         step["deadline_note"] = "Срок изменён куратором"
     if "status" in changes:
         mark_completion(step, "curator" if step["status"] == "done" else None)
+    if {"rationale", "parent_explanation"} & changes.keys():
+        step["text_source"] = "curator"
     if changes:
         if {"priority", "due_date"} & changes.keys():
             planner.sort_steps(content["steps"])
@@ -116,6 +125,44 @@ def add_step(plan_id: int, body: StepAdd, session: SessionDep, user: CurrentCura
               actor_user_id=user.id, payload={"added": added}),
     )
     return StepAddOut(**plan_out(plan, case, today).model_dump(), added=added)
+
+
+@router.delete("/{plan_id}/steps/{step_id}", response_model=PlanOut)
+def remove_step(
+    plan_id: int, step_id: str, body: StepRemove, session: SessionDep, user: CurrentCurator, today: TodayQuery = None
+) -> PlanOut:
+    """Take a step out of the plan, with a reason. Refused while another step depends on it."""
+    plan, case = _load(session, plan_id)
+    content = copy.deepcopy(plan.plan)
+    step = find_step(content, step_id)
+    dependents = [s["title"] for s in content["steps"] if step["service_id"] in s["depends_on"]]
+    if dependents:
+        names = ", ".join(f"«{t}»" for t in dependents)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Сначала удалите зависящие шаги: {names}")
+
+    content["steps"] = [s for s in content["steps"] if s["step_id"] != step_id]
+    for other in content["steps"]:  # documents that step would have produced are no longer "from" it
+        for doc in other["documents"]:
+            if doc["from_step"] == step["service_id"]:
+                doc["from_step"] = None
+    reason = body.reason.strip()
+    content.setdefault("removed", []).append(
+        {
+            "service_id": step["service_id"],
+            "title": step["title"],
+            "reason": reason,
+            "removed_at": date.today().isoformat(),
+            "removed_by": user.id,
+        }
+    )
+    save(
+        session,
+        plan,
+        content,
+        Event(case_id=case.id, plan_id=plan.id, step_id=step_id, kind="step_removed", actor_user_id=user.id,
+              payload={"title": step["title"], "reason": reason}),
+    )
+    return plan_out(plan, case, today or date.today())
 
 
 @router.post("/{plan_id}/approve", response_model=PlanOut)

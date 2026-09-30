@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from models import Case, CaseStatus, Event, Plan
+from schemas import MAX_EXPLANATION, MAX_RATIONALE
 from services import llm
 from services.catalog import DOCUMENTS, LEGAL_SOURCES, RULES, SERVICES, ServiceId, legal_source_text
 from services.eligibility import build_profile, dependency_order, select_services, with_prerequisites
@@ -23,8 +24,6 @@ log = logging.getLogger("aqylroute.planner")
 
 ASSIGNED_DAYS = 14  # services without a statutory deadline
 ASSIGNED_NOTE = "нормативного срока нет — срок назначен куратором"
-MAX_RATIONALE = 400
-MAX_EXPLANATION = 600
 
 # Facts the AI may see. Functional scales and months_since_diagnosis describe the child's health
 # and are never passed to the AI (PLAN.md, risks).
@@ -323,6 +322,7 @@ def add_step(content: dict[str, Any], code: str, facts: dict[str, Any], today: d
     sort_steps(steps)
     content["steps"] = steps
     content["undecided"] = [c for c in content.get("undecided", []) if c not in all_codes]
+    content["removed"] = [r for r in content.get("removed", []) if r["service_id"] not in all_codes]
     return new_codes
 
 

@@ -17,6 +17,7 @@ import {
   escalateStep,
   generatePlan,
   listServices,
+  removeStep,
   updateStep,
   type CaseDetail,
   type Escalation,
@@ -39,7 +40,13 @@ const EVENT_LABEL: Record<string, string> = {
   escalated: "Эскалация",
   step_done_by_parent: "Родитель отметил шаг выполненным",
   step_reopened_by_parent: "Родитель снял отметку о выполнении",
+  step_removed: "Шаг удалён",
 };
+
+const MAX_RATIONALE = 400;
+const MAX_EXPLANATION = 600;
+const TEXTAREA =
+  "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 export default function CuratorCasePage() {
   const { id } = useParams<{ id: string }>();
@@ -71,15 +78,18 @@ function CaseView({ caseId }: { caseId: number }) {
       .catch(() => setServices([]));
   }, []);
 
-  /** Run a change, then reload the case (plan, events). */
-  async function act(action: () => Promise<unknown>, fallback: string) {
+  /** Run a change, then reload the case (plan, events). Returns the error text, or null on success. */
+  async function act(action: () => Promise<unknown>, fallback: string): Promise<string | null> {
     setError(null);
     setBusy(true);
     try {
       await action();
       setDetail(await caseDetail(caseId, today!));
+      return null;
     } catch (err) {
-      setError(errorText(err, fallback));
+      const message = errorText(err, fallback);
+      setError(message);
+      return message;
     } finally {
       setBusy(false);
     }
@@ -157,7 +167,11 @@ function CaseView({ caseId }: { caseId: number }) {
                 key={step.step_id}
                 step={step}
                 busy={busy}
+                dependents={plan.plan.steps.filter((s) => s.depends_on.includes(step.service_id)).map((s) => s.title)}
                 onPatch={(patch) => act(() => updateStep(plan.id, step.step_id, patch, today), "Не удалось сохранить")}
+                onRemove={(reason) =>
+                  act(() => removeStep(plan.id, step.step_id, reason, today), "Не удалось удалить шаг")
+                }
                 onEscalate={() =>
                   act(
                     async () => setEscalation(await escalateStep(plan.id, step.step_id, today)),
@@ -173,6 +187,26 @@ function CaseView({ caseId }: { caseId: number }) {
             busy={busy}
             onAdd={(serviceId) => act(() => addStep(plan.id, serviceId, today), "Не удалось добавить шаг")}
           />
+          {plan.plan.removed.length > 0 && (
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle>Удалённые шаги</CardTitle>
+                <CardDescription>Родитель их не видит. Вернуть можно через «Добавить шаг».</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="flex flex-col gap-2 text-sm">
+                  {plan.plan.removed.map((r) => (
+                    <li key={`${r.service_id}-${r.removed_at}`}>
+                      <p className="font-medium">{r.title}</p>
+                      <p className="text-muted-foreground">
+                        {formatDate(r.removed_at)} · {r.reason}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
@@ -189,14 +223,20 @@ function CaseView({ caseId }: { caseId: number }) {
 function StepRow({
   step,
   busy,
+  dependents,
   onPatch,
+  onRemove,
   onEscalate,
 }: {
   step: PlanStep;
   busy: boolean;
-  onPatch: (patch: StepPatch) => void;
+  dependents: string[];
+  onPatch: (patch: StepPatch) => Promise<string | null>;
+  onRemove: (reason: string) => Promise<string | null>;
   onEscalate: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
   return (
     <li>
       <Card size="sm" className={cn(step.overdue_level === 2 && "ring-red-300", step.overdue_level === 1 && "ring-amber-300")}>
@@ -211,6 +251,9 @@ function StepRow({
             )}
             {step.text_source === "fallback" && (
               <span className="text-xs text-muted-foreground">текст из каталога</span>
+            )}
+            {step.text_source === "curator" && (
+              <span className="text-xs text-muted-foreground">текст изменён куратором</span>
             )}
           </div>
           <CardTitle>{step.title}</CardTitle>
@@ -267,16 +310,20 @@ function StepRow({
           </div>
           <p className="text-xs text-muted-foreground">{step.deadline_note}</p>
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Почему в плане (для куратора)</p>
-              <p>{step.rationale}</p>
+          {editing ? (
+            <TextEditor step={step} busy={busy} onSave={onPatch} onClose={() => setEditing(false)} />
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Почему в плане (для куратора)</p>
+                <p>{step.rationale}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Что увидит родитель</p>
+                <p>{step.parent_explanation}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Что увидит родитель</p>
-              <p>{step.parent_explanation}</p>
-            </div>
-          </div>
+          )}
 
           {step.documents.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -288,9 +335,155 @@ function StepRow({
           )}
           {step.warning && <p className="rounded-lg bg-muted p-2 text-xs">{step.warning}</p>}
           <p className="text-xs text-muted-foreground">Основание: {step.legal_source}</p>
+
+          <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            {!editing && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => setEditing(true)}>
+                Изменить тексты
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive"
+              disabled={busy || dependents.length > 0}
+              onClick={() => setRemoving(true)}
+            >
+              Удалить шаг
+            </Button>
+            {dependents.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                Удалить нельзя: от него зависит {dependents.map((t) => `«${t}»`).join(", ")}
+              </span>
+            )}
+          </div>
         </CardContent>
       </Card>
+      {removing && (
+        <RemoveDialog title={step.title} busy={busy} onRemove={onRemove} onClose={() => setRemoving(false)} />
+      )}
     </li>
+  );
+}
+
+function TextEditor({
+  step,
+  busy,
+  onSave,
+  onClose,
+}: {
+  step: PlanStep;
+  busy: boolean;
+  onSave: (patch: StepPatch) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [rationale, setRationale] = useState(step.rationale);
+  const [explanation, setExplanation] = useState(step.parent_explanation);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const patch: StepPatch = {};
+    if (rationale.trim() !== step.rationale) patch.rationale = rationale.trim();
+    if (explanation.trim() !== step.parent_explanation) patch.parent_explanation = explanation.trim();
+    if (Object.keys(patch).length === 0) return onClose();
+    const err = await onSave(patch);
+    if (err) setError(err);
+    else onClose();
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          Почему в плане (для куратора)
+          <textarea
+            rows={4}
+            maxLength={MAX_RATIONALE}
+            className={TEXTAREA}
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+          />
+          <span className="font-normal">
+            {rationale.length} / {MAX_RATIONALE}
+          </span>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          Что увидит родитель
+          <textarea
+            rows={4}
+            maxLength={MAX_EXPLANATION}
+            className={TEXTAREA}
+            value={explanation}
+            onChange={(e) => setExplanation(e.target.value)}
+          />
+          <span className="font-normal">
+            {explanation.length} / {MAX_EXPLANATION} · без диагнозов, степени и тяжести состояния
+          </span>
+        </label>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" disabled={busy || !rationale.trim() || !explanation.trim()} onClick={save}>
+          Сохранить
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onClose}>
+          Отмена
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RemoveDialog({
+  title,
+  busy,
+  onRemove,
+  onClose,
+}: {
+  title: string;
+  busy: boolean;
+  onRemove: (reason: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    const err = await onRemove(reason.trim());
+    if (err) setError(err);
+    else onClose();
+  }
+
+  return (
+    <Modal title="Удалить шаг из плана" onClose={onClose}>
+      <div className="flex flex-col gap-3 text-sm">
+        <p>
+          «{title}» исчезнет из плана родителя. Шаг останется в списке удалённых, его можно вернуть через
+          «Добавить шаг».
+        </p>
+        <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+          Причина (видна кураторам и в истории)
+          <textarea
+            rows={3}
+            maxLength={300}
+            autoFocus
+            className={TEXTAREA}
+            placeholder="Например: заключение уже получено в этом году"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </label>
+        {error && <p className="text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            Отмена
+          </Button>
+          <Button variant="destructive" disabled={busy || reason.trim().length < 3} onClick={remove}>
+            Удалить шаг
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

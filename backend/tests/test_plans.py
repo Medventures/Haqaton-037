@@ -214,3 +214,70 @@ def test_parent_marks_steps_done(api, session):  # noqa: F811
     api.login_as(3)
     r = api.patch(f"/plans/{body['id']}/steps/PMPK_EXAM", json={"status": "in_progress"})
     assert _step(r.json(), "PMPK_EXAM")["completed_by"] is None
+
+
+def test_curator_edits_texts(api, session):  # noqa: F811
+    case, body = _planned_case(api, session, CASE_B)
+    url = f"/plans/{body['id']}/steps/PMPK_EXAM"
+
+    r = api.patch(url, json={"parent_explanation": "  Запишитесь в ПМПК по месту жительства.  ",
+                             "rationale": "Перед школой нужно новое заключение"})
+    assert r.status_code == 200
+    step = _step(r.json(), "PMPK_EXAM")
+    assert step["parent_explanation"] == "Запишитесь в ПМПК по месту жительства."
+    assert step["rationale"] == "Перед школой нужно новое заключение"
+    assert step["text_source"] == "curator"
+    event = session.exec(select(models.Event).where(models.Event.kind == "step_updated")).one()
+    assert event.payload["changes"]["parent_explanation"][1] == "Запишитесь в ПМПК по месту жительства."
+
+    # The parent's text goes through the diagnosis filter; the curator's note doesn't.
+    r = api.patch(url, json={"parent_explanation": "У ребёнка аутизм тяжёлой степени."})
+    assert r.status_code == 422 and "диагноз" in r.json()["detail"]
+    assert api.patch(url, json={"rationale": "Со слов мамы — синдром, уточнить"}).status_code == 200
+    assert api.patch(url, json={"parent_explanation": "   "}).status_code == 422
+    assert api.patch(url, json={"parent_explanation": "x" * 601}).status_code == 422
+
+    # The parent sees the curator's text after approval.
+    api.post(f"/plans/{body['id']}/approve")
+    api.login_as(1)
+    steps = api.get(f"/parent/cases/{case.id}").json()["steps"]
+    assert next(s for s in steps if s["step_id"] == "PMPK_EXAM")["parent_explanation"].startswith("Запишитесь")
+
+
+def test_curator_removes_steps(api, session):  # noqa: F811
+    case, body = _planned_case(api, session, CASE_B)
+    base = f"/plans/{body['id']}/steps"
+
+    # ПМПК can't go while school enrolment depends on it...
+    r = api.request("DELETE", f"{base}/PMPK_EXAM", json={"reason": "Уже проходили в этом году"})
+    school_title = _step(body, "SPECIAL_SCHOOL_ENROLL")["title"]
+    assert r.status_code == 409 and r.json()["detail"] == f"Сначала удалите зависящие шаги: «{school_title}»"
+    assert api.request("DELETE", f"{base}/MSE_DECISION", json={"reason": "ab"}).status_code == 422  # reason too short
+    assert api.request("DELETE", f"{base}/NOPE", json={"reason": "причина"}).status_code == 404
+
+    # ...but a step nothing depends on can.
+    r = api.request("DELETE", f"{base}/MSE_DECISION", json={"reason": "ИПР обновили в августе"})
+    assert r.status_code == 200
+    plan = r.json()["plan"]
+    assert "MSE_DECISION" not in {s["service_id"] for s in plan["steps"]}
+    assert plan["removed"] == [{**plan["removed"][0], "service_id": "MSE_DECISION", "reason": "ИПР обновили в августе",
+                                "removed_by": 3}]
+    assert _events(session, case.id)[-1] == "step_removed"
+
+    # Now its prerequisite has no dependents left and can go too.
+    assert api.request("DELETE", f"{base}/VKK_REFERRAL", json={"reason": "Не нужно без МСЭ"}).status_code == 200
+
+    # The parent no longer sees removed steps.
+    api.post(f"/plans/{body['id']}/approve")
+    api.login_as(1)
+    ids = {s["step_id"] for s in api.get(f"/parent/cases/{case.id}").json()["steps"]}
+    assert ids == {"PMPK_EXAM", "SPECIAL_SCHOOL_ENROLL"}
+
+    # Adding МСЭ back pulls in its ВКК prerequisite again, and both leave the removed list.
+    api.login_as(3)
+    r = api.post(base, json={"service_id": "MSE_DECISION"})
+    assert r.status_code == 201 and r.json()["added"] == ["VKK_REFERRAL", "MSE_DECISION"]
+    assert r.json()["plan"]["removed"] == []
+
+    api.login_as(1)
+    assert api.request("DELETE", f"{base}/PMPK_EXAM", json={"reason": "причина"}).status_code == 403  # parents can't
