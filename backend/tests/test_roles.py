@@ -86,7 +86,7 @@ def test_me_returns_role(client, session):  # noqa: F811
 
 
 def test_registration_always_creates_a_parent(session, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(otp, "verify_code", lambda phone, code: None)
+    monkeypatch.setattr(otp, "verify_code", lambda session, phone, code: None)
     data = RegisterIn(phone="+7 702 111 22 33", last_name="Н", first_name="Р", password="password1", code="123456")
     assert auth.register(session, data).role == "parent"
     # Extra fields such as a role are not part of the registration schema.

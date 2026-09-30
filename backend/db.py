@@ -3,6 +3,7 @@ from collections.abc import Iterator
 
 from dotenv import load_dotenv
 from sqlalchemy import inspect, text
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine
 
 load_dotenv()
@@ -18,6 +19,9 @@ IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 if IS_SQLITE:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+elif os.getenv("VERCEL"):
+    # Serverless: no pool per short-lived instance; Supabase's transaction pooler (port 6543) does the pooling.
+    engine = create_engine(DATABASE_URL, connect_args={"prepare_threshold": None}, poolclass=NullPool)
 else:
     engine = create_engine(
         DATABASE_URL,

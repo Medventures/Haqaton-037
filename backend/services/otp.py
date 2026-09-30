@@ -1,10 +1,18 @@
-"""One-time SMS codes. Kept in memory on purpose: the DB stores only user profile + password hash."""
+"""One-time SMS codes, stored in the `otp_codes` table.
 
+Not kept in memory: on Vercel each request can land on a different instance, so "send code" and
+"register" must share state through the database. Only a hash of the code is stored.
+"""
+
+import hashlib
 import hmac
 import secrets
-import threading
-import time
-from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session
+
+from models import OtpCode
 
 CODE_TTL_SECONDS = 300
 RESEND_COOLDOWN_SECONDS = 60
@@ -21,46 +29,60 @@ class OtpCooldown(OtpError):
         self.retry_in = retry_in
 
 
-@dataclass
-class _Entry:
-    code: str
-    expires_at: float
-    sent_at: float
-    attempts: int = 0
+def _hash(phone: str, code: str) -> str:
+    return hashlib.sha256(f"{phone}:{code}".encode()).hexdigest()
 
 
-_store: dict[str, _Entry] = {}
-_lock = threading.Lock()
+def _aware(dt: datetime) -> datetime:
+    # SQLite returns naive datetimes even for timezone-aware columns.
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
-def issue_code(phone: str) -> str:
-    now = time.monotonic()
-    with _lock:
-        entry = _store.get(phone)
-        if entry and now - entry.sent_at < RESEND_COOLDOWN_SECONDS:
-            raise OtpCooldown(int(RESEND_COOLDOWN_SECONDS - (now - entry.sent_at)) + 1)
-        code = f"{secrets.randbelow(10**6):06d}"
-        _store[phone] = _Entry(code=code, expires_at=now + CODE_TTL_SECONDS, sent_at=now)
-        return code
+def issue_code(session: Session, phone: str) -> str:
+    now = datetime.now(UTC)
+    entry = session.get(OtpCode, phone)
+    if entry:
+        elapsed = (now - _aware(entry.sent_at)).total_seconds()
+        if elapsed < RESEND_COOLDOWN_SECONDS:
+            raise OtpCooldown(int(RESEND_COOLDOWN_SECONDS - elapsed) + 1)
+    else:
+        entry = OtpCode(phone=phone)
+    code = f"{secrets.randbelow(10**6):06d}"
+    entry.code_hash = _hash(phone, code)
+    entry.sent_at = now
+    entry.expires_at = now + timedelta(seconds=CODE_TTL_SECONDS)
+    entry.attempts = 0
+    session.add(entry)
+    try:
+        session.commit()
+    except IntegrityError:  # a parallel request for the same phone won the insert
+        session.rollback()
+        raise OtpCooldown(RESEND_COOLDOWN_SECONDS)
+    return code
 
 
-def discard_code(phone: str) -> None:
-    with _lock:
-        _store.pop(phone, None)
+def discard_code(session: Session, phone: str) -> None:
+    if entry := session.get(OtpCode, phone):
+        session.delete(entry)
+        session.commit()
 
 
-def verify_code(phone: str, code: str) -> None:
-    """Raise OtpError unless the code matches. A matched code is consumed."""
-    now = time.monotonic()
-    with _lock:
-        entry = _store.get(phone)
-        if entry is None or now > entry.expires_at:
-            _store.pop(phone, None)
-            raise OtpError("Код истёк или не запрашивался. Запросите новый код.")
-        if entry.attempts >= MAX_ATTEMPTS:
-            _store.pop(phone, None)
-            raise OtpError("Слишком много попыток. Запросите новый код.")
-        if not hmac.compare_digest(entry.code, code):
-            entry.attempts += 1
-            raise OtpError("Неверный код")
-        del _store[phone]
+def verify_code(session: Session, phone: str, code: str) -> None:
+    """Raise OtpError unless the code matches. A matched code is deleted in the caller's commit."""
+    # Row lock (Postgres) so parallel guesses can't get past MAX_ATTEMPTS.
+    entry = session.get(OtpCode, phone, with_for_update=True)
+    if entry is None or datetime.now(UTC) > _aware(entry.expires_at):
+        if entry:
+            session.delete(entry)
+            session.commit()
+        raise OtpError("Код истёк или не запрашивался. Запросите новый код.")
+    if entry.attempts >= MAX_ATTEMPTS:
+        session.delete(entry)
+        session.commit()
+        raise OtpError("Слишком много попыток. Запросите новый код.")
+    if not hmac.compare_digest(entry.code_hash, _hash(phone, code)):
+        entry.attempts += 1
+        session.add(entry)
+        session.commit()
+        raise OtpError("Неверный код")
+    session.delete(entry)

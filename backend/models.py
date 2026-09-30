@@ -87,3 +87,15 @@ class Event(SQLModel, table=True):
     actor_user_id: int | None = Field(default=None, foreign_key="users.id")
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONType, nullable=False))
     created_at: datetime = _created_at()
+
+
+class OtpCode(SQLModel, table=True):
+    """A pending SMS code. In the database, not in memory, so it works across serverless instances."""
+
+    __tablename__ = "otp_codes"
+
+    phone: str = Field(primary_key=True, max_length=20)
+    code_hash: str = Field(max_length=64)  # sha256, the code itself is never stored
+    sent_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    attempts: int = 0

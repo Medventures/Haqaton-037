@@ -67,18 +67,18 @@ def _get_user_by_phone(session: Session, phone: str) -> User | None:
 def send_register_code(session: Session, phone: str) -> None:
     if _get_user_by_phone(session, phone):
         raise AuthError("Этот номер уже зарегистрирован", status.HTTP_409_CONFLICT)
-    code = otp.issue_code(phone)
+    code = otp.issue_code(session, phone)
     try:
         send_sms(phone, f"AqylRoute: код подтверждения {code}")
     except Exception:
-        otp.discard_code(phone)  # let the user retry immediately
+        otp.discard_code(session, phone)  # let the user retry immediately
         raise
 
 
 def register(session: Session, data: RegisterIn) -> User:
     if _get_user_by_phone(session, data.phone):
         raise AuthError("Этот номер уже зарегистрирован", status.HTTP_409_CONFLICT)
-    otp.verify_code(data.phone, data.code)
+    otp.verify_code(session, data.phone, data.code)
     user = User(
         last_name=data.last_name,
         first_name=data.first_name,
