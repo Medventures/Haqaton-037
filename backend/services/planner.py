@@ -60,6 +60,8 @@ def _step(code: str, facts: dict[str, Any], start: date, plan_codes: list[str]) 
         "due_date": None,  # filled by _fill_due_dates
         "deadline_note": "",
         "status": "todo",
+        "completed_by": None,
+        "completed_at": None,
         "priority": service["priority_default"],
         "rationale": "",
         "parent_explanation": "",

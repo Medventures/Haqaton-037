@@ -187,6 +187,8 @@ export type PlanStep = {
   parent_explanation: string;
   text_source: "ai" | "fallback";
   warning: string | null;
+  completed_by: "parent" | "curator" | null;
+  completed_at: string | null;
   days_overdue: number;
   overdue_level: OverdueLevel;
 };
@@ -297,6 +299,9 @@ export const sendAnswer = (caseId: number, answer: Answer) =>
   request<InterviewState>(`/cases/${caseId}/answers`, post(answer));
 export const myCases = () => request<Case[]>("/parent/cases");
 export const myPlan = (caseId: number) => request<ParentPlan>(`/parent/cases/${caseId}`);
+/** The parent marks a step of their approved plan done (or undoes their own mark). */
+export const markStep = (caseId: number, stepId: string, done: boolean) =>
+  request<ParentPlan>(`/parent/cases/${caseId}/steps/${stepId}`, { method: "PATCH", body: JSON.stringify({ done }) });
 /** After the last answer: builds the plan and sends it to the curator (the plan isn't returned). */
 export const submitInterview = (caseId: number) => request<Case>(`/parent/cases/${caseId}/plan`, post());
 

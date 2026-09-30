@@ -160,3 +160,57 @@ def test_services_list(api):
     assert len(services) == 21
     modes = {s["service_id"]: s["mode"] for s in services}
     assert modes["PMPK_APPEAL"] == "trigger" and modes["PMPK_EXAM"] == "direct"
+
+
+def test_parent_marks_steps_done(api, session):  # noqa: F811
+    case, body = _planned_case(api, session, CASE_B)
+    url = f"/parent/cases/{case.id}/steps"
+    school = _step(body, "SPECIAL_SCHOOL_ENROLL")
+    late = (date.fromisoformat(school["due_date"]) + timedelta(days=12)).isoformat()
+
+    api.login_as(1)
+    assert api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL", json={"done": True}).status_code == 403  # not approved yet
+    api.login_as(3)
+    assert api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL", json={"done": True}).status_code == 403  # curator: not their route
+    api.post(f"/plans/{body['id']}/approve")
+
+    api.login_as(2)
+    assert api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL", json={"done": True}).status_code == 403  # someone else's case
+
+    api.login_as(1)
+    r = api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL?today={late}", json={"done": True})
+    assert r.status_code == 200
+    step = next(s for s in r.json()["steps"] if s["step_id"] == "SPECIAL_SCHOOL_ENROLL")
+    assert (step["status"], step["completed_by"], step["days_overdue"]) == ("done", "parent", 0)
+    assert step["completed_at"] == date.today().isoformat()
+    assert r.json()["overdue"]["steps_done"] == 1
+    assert api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL", json={"done": True}).status_code == 200  # idempotent
+    assert api.patch(f"{url}/NOPE", json={"done": True}).status_code == 404
+    assert api.patch(f"{url}/PMPK_EXAM", json={}).status_code == 422
+
+    # The curator sees who marked it.
+    api.login_as(3)
+    detail = api.get(f"/cases/{case.id}").json()
+    assert _step(detail["plan"], "SPECIAL_SCHOOL_ENROLL")["completed_by"] == "parent"
+    events = session.exec(select(models.Event).where(models.Event.kind == "step_done_by_parent")).all()
+    assert len(events) == 1 and events[0].actor_user_id == 1
+
+    # Undo restores the previous status.
+    api.login_as(1)
+    r = api.patch(f"{url}/SPECIAL_SCHOOL_ENROLL", json={"done": False})
+    step = next(s for s in r.json()["steps"] if s["step_id"] == "SPECIAL_SCHOOL_ENROLL")
+    assert (step["status"], step["completed_by"], step["completed_at"]) == ("todo", None, None)
+    assert _events(session, case.id)[-1] == "step_reopened_by_parent"
+
+    # A step the curator marked done can't be reopened by the parent.
+    api.login_as(3)
+    r = api.patch(f"/plans/{body['id']}/steps/PMPK_EXAM", json={"status": "done"})
+    assert _step(r.json(), "PMPK_EXAM")["completed_by"] == "curator"
+    api.login_as(1)
+    r = api.patch(f"{url}/PMPK_EXAM", json={"done": False})
+    assert r.status_code == 409 and "куратор" in r.json()["detail"]
+
+    # The curator moving a step out of "done" clears the mark.
+    api.login_as(3)
+    r = api.patch(f"/plans/{body['id']}/steps/PMPK_EXAM", json={"status": "in_progress"})
+    assert _step(r.json(), "PMPK_EXAM")["completed_by"] is None

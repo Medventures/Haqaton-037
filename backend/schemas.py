@@ -135,6 +135,8 @@ class PlanStep(BaseModel):
     parent_explanation: str
     text_source: Literal["ai", "fallback"]
     warning: str | None
+    completed_by: Literal["parent", "curator"] | None = None  # who marked the step done
+    completed_at: str | None = None  # YYYY-MM-DD
     days_overdue: int = 0  # computed on read against ?today=
     overdue_level: int = 0  # 0 on time, 1 for 1–7 days late, 2 for more
 
@@ -178,6 +180,10 @@ class StepPatch(BaseModel):
         if not self.model_fields_set:
             raise ValueError("nothing to change")
         return self
+
+
+class StepDoneIn(BaseModel):
+    done: bool  # true: the parent completed the step; false: undo their own mark
 
 
 class StepAdd(BaseModel):
@@ -258,6 +264,8 @@ class ParentStep(BaseModel):
     priority: int
     parent_explanation: str
     warning: str | None
+    completed_by: Literal["parent", "curator"] | None = None
+    completed_at: str | None = None
     days_overdue: int
     overdue_level: int
 

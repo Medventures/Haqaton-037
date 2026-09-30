@@ -39,14 +39,22 @@ def _load(session: Session, plan_id: int) -> tuple[Plan, Case]:
     return plan, session.get(Case, plan.case_id)
 
 
-def _find_step(content: dict[str, Any], step_id: str) -> dict[str, Any]:
+def find_step(content: dict[str, Any], step_id: str) -> dict[str, Any]:
     step = next((s for s in content["steps"] if s["step_id"] == step_id), None)
     if step is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаг не найден")
     return step
 
 
-def _save(session: Session, plan: Plan, content: dict[str, Any], event: Event) -> None:
+def mark_completion(step: dict[str, Any], by: str | None) -> None:
+    """Record who marked the step done and when (real date, not the simulated one); None clears it."""
+    step["completed_by"] = by
+    step["completed_at"] = date.today().isoformat() if by else None
+    if by is None:
+        step.pop("status_before", None)
+
+
+def save(session: Session, plan: Plan, content: dict[str, Any], event: Event) -> None:
     """Plan JSON and its event row in one transaction."""
     plan.plan = content  # a new dict, so SQLAlchemy sees the change
     plan.updated_at = datetime.now(UTC)
@@ -62,7 +70,7 @@ def update_step(
 ) -> PlanOut:
     plan, case = _load(session, plan_id)
     content = copy.deepcopy(plan.plan)
-    step = _find_step(content, step_id)
+    step = find_step(content, step_id)
 
     changes: dict[str, list[Any]] = {}
     for field in body.model_fields_set:
@@ -75,10 +83,12 @@ def update_step(
             step[field] = new
     if "due_date" in changes:
         step["deadline_note"] = "Срок изменён куратором"
+    if "status" in changes:
+        mark_completion(step, "curator" if step["status"] == "done" else None)
     if changes:
         if {"priority", "due_date"} & changes.keys():
             planner.sort_steps(content["steps"])
-        _save(
+        save(
             session,
             plan,
             content,
@@ -98,7 +108,7 @@ def add_step(plan_id: int, body: StepAdd, session: SessionDep, user: CurrentCura
         added = planner.add_step(content, body.service_id.value, case.facts, today)
     except planner.StepExists:
         raise HTTPException(status.HTTP_409_CONFLICT, "Этот шаг уже есть в плане")
-    _save(
+    save(
         session,
         plan,
         content,
@@ -128,7 +138,7 @@ def escalate(
     """Log the escalation and return a pre-filled message to the responsible organization."""
     plan, case = _load(session, plan_id)
     today = today or date.today()
-    step = _find_step(plan.plan, step_id)
+    step = find_step(plan.plan, step_id)
     if overdue.overdue_days(step, today) == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Шаг не просрочен")
     result = overdue.escalation_message(step, case.label, today)

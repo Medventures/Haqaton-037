@@ -1,5 +1,6 @@
-"""Parent-facing reads. A parent sees only their own cases, and the plan only after curator approval."""
+"""Parent-facing endpoints. A parent sees only their own cases, and the plan only after curator approval."""
 
+import copy
 from datetime import date
 from typing import Annotated
 
@@ -7,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, col, select
 
 from db import get_session
-from models import Case, CaseStatus, Plan
-from routers.plans import TodayQuery
-from schemas import CaseOut, ParentPlanOut, ParentStep
+from models import Case, CaseStatus, Event, Plan
+from routers.plans import TodayQuery, find_step, mark_completion, save
+from schemas import CaseOut, ParentPlanOut, ParentStep, StepDoneIn
 from services import overdue, planner
 from services.auth import CurrentParent
 
@@ -45,13 +46,14 @@ def submit_interview(case_id: int, session: SessionDep, user: CurrentParent) -> 
     return CaseOut.model_validate(case.model_dump())
 
 
-@router.get("/cases/{case_id}", response_model=ParentPlanOut)
-def my_plan(case_id: int, session: SessionDep, user: CurrentParent, today: TodayQuery = None) -> ParentPlanOut:
-    """403 unless it is the parent's own case and the curator has approved the plan."""
-    case = _own_case(session, case_id, user.id)
+def _approved_plan(session: Session, case: Case) -> Plan:
     plan = session.exec(select(Plan).where(Plan.case_id == case.id)).first()
     if case.status != CaseStatus.approved or plan is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "План на проверке у куратора")
+    return plan
+
+
+def _plan_out(case: Case, plan: Plan, today: date | None) -> ParentPlanOut:
     today = today or date.today()
     steps = overdue.with_overdue(plan.plan["steps"], today)
     return ParentPlanOut(
@@ -60,3 +62,51 @@ def my_plan(case_id: int, session: SessionDep, user: CurrentParent, today: Today
         overdue=overdue.summary(plan.plan["steps"], today),
         today=today,
     )
+
+
+@router.get("/cases/{case_id}", response_model=ParentPlanOut)
+def my_plan(case_id: int, session: SessionDep, user: CurrentParent, today: TodayQuery = None) -> ParentPlanOut:
+    """403 unless it is the parent's own case and the curator has approved the plan."""
+    case = _own_case(session, case_id, user.id)
+    return _plan_out(case, _approved_plan(session, case), today)
+
+
+@router.patch("/cases/{case_id}/steps/{step_id}", response_model=ParentPlanOut)
+def mark_step(
+    case_id: int, step_id: str, body: StepDoneIn, session: SessionDep, user: CurrentParent, today: TodayQuery = None
+) -> ParentPlanOut:
+    """The parent marks a step of their approved plan as done, or undoes their own mark.
+
+    Only the status changes; the curator sees «отмечено родителем» and the case history records it.
+    """
+    case = _own_case(session, case_id, user.id)
+    plan = _approved_plan(session, case)
+    content = copy.deepcopy(plan.plan)
+    step = find_step(content, step_id)
+    old_status = step["status"]
+
+    if body.done:
+        if old_status == "done":
+            return _plan_out(case, plan, today)
+        step["status_before"] = old_status  # restored on undo
+        step["status"] = "done"
+        mark_completion(step, "parent")
+        kind = "step_done_by_parent"
+    else:
+        if old_status != "done":
+            return _plan_out(case, plan, today)
+        if step.get("completed_by") != "parent":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Шаг отметил куратор — отменить может только он")
+        step["status"] = step.get("status_before") or "todo"
+        mark_completion(step, None)
+        kind = "step_reopened_by_parent"
+
+    save(
+        session,
+        plan,
+        content,
+        Event(case_id=case.id, plan_id=plan.id, step_id=step_id, kind=kind, actor_user_id=user.id,
+              payload={"changes": {"status": [old_status, step["status"]]}}),
+    )
+    session.refresh(case)
+    return _plan_out(case, plan, today)

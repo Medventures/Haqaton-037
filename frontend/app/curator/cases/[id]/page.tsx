@@ -37,6 +37,8 @@ const EVENT_LABEL: Record<string, string> = {
   step_updated: "Шаг изменён",
   step_added: "Шаг добавлен",
   escalated: "Эскалация",
+  step_done_by_parent: "Родитель отметил шаг выполненным",
+  step_reopened_by_parent: "Родитель снял отметку о выполнении",
 };
 
 export default function CuratorCasePage() {
@@ -202,6 +204,11 @@ function StepRow({
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="border-border">{SECTOR_LABEL[step.sector] ?? step.sector}</Badge>
             <OverdueBadge level={step.overdue_level} days={step.days_overdue} />
+            {step.completed_by === "parent" && step.completed_at && (
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                Отмечено родителем {formatDate(step.completed_at)}
+              </Badge>
+            )}
             {step.text_source === "fallback" && (
               <span className="text-xs text-muted-foreground">текст из каталога</span>
             )}

@@ -151,7 +151,7 @@ def seed(session: Session, today: date) -> tuple[User, list[tuple[Case, Plan]], 
         # Everything else due before the demo date is done, so exactly one step is overdue.
         for step in content["steps"]:
             if step is not late and date.fromisoformat(step["due_date"]) < demo_today:
-                step["status"] = "done"
+                step.update(status="done", completed_by="curator", completed_at=step["due_date"])
 
         plan = Plan(case_id=case.id, plan=content)
         case.status = CaseStatus.approved

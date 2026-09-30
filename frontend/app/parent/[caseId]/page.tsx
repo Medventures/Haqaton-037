@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import {
   ApiError,
   getInterview,
+  markStep,
   myPlan,
   sendAnswer,
   submitInterview,
@@ -180,9 +181,25 @@ function BackLink() {
   );
 }
 
-function PlanView({ plan }: { plan: ParentPlan }) {
+function PlanView({ plan: initial }: { plan: ParentPlan }) {
+  const [plan, setPlan] = useState(initial);
+  const [busyStep, setBusyStep] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const titles = Object.fromEntries(plan.steps.map((s) => [s.step_id, s.title]));
   const { steps_done, steps_total } = plan.overdue;
+
+  async function mark(stepId: string, done: boolean) {
+    setError(null);
+    setBusyStep(stepId);
+    try {
+      setPlan(await markStep(plan.case.id, stepId, done));
+    } catch (err) {
+      setError(errorText(err, "Не удалось сохранить"));
+    } finally {
+      setBusyStep(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <BackLink />
@@ -192,20 +209,40 @@ function PlanView({ plan }: { plan: ParentPlan }) {
           Выполнено {steps_done} из {steps_total}. Сроки — нормативные, а не гарантия.
         </p>
       </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <ol className="flex flex-col gap-3">
         {plan.steps.map((step, i) => (
-          <StepCard key={step.step_id} step={step} index={i + 1} titles={titles} />
+          <StepCard
+            key={step.step_id}
+            step={step}
+            index={i + 1}
+            titles={titles}
+            busy={busyStep === step.step_id}
+            onMark={(done) => mark(step.step_id, done)}
+          />
         ))}
       </ol>
     </div>
   );
 }
 
-function StepCard({ step, index, titles }: { step: ParentStep; index: number; titles: Record<string, string> }) {
+function StepCard({
+  step,
+  index,
+  titles,
+  busy,
+  onMark,
+}: {
+  step: ParentStep;
+  index: number;
+  titles: Record<string, string>;
+  busy: boolean;
+  onMark: (done: boolean) => void;
+}) {
   const done = step.status === "done";
   return (
     <li>
-      <Card className={cn(done && "opacity-60")}>
+      <Card className={cn(done && "bg-muted/40")}>
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Шаг {index}</span>
@@ -279,6 +316,27 @@ function StepCard({ step, index, titles }: { step: ParentStep; index: number; ti
               step.legal_source
             )}
           </p>
+
+          <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+            {!done && (
+              <Button variant="outline" disabled={busy} onClick={() => onMark(true)}>
+                {busy ? "Сохраняем…" : "Отметить выполненным"}
+              </Button>
+            )}
+            {done && step.completed_by === "parent" && (
+              <>
+                <span className="text-emerald-700">
+                  ✓ Вы отметили выполненным{step.completed_at ? ` ${formatDate(step.completed_at)}` : ""}
+                </span>
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => onMark(false)}>
+                  Отменить
+                </Button>
+              </>
+            )}
+            {done && step.completed_by !== "parent" && (
+              <span className="text-emerald-700">✓ Куратор отметил шаг выполненным</span>
+            )}
+          </div>
         </CardContent>
       </Card>
     </li>
