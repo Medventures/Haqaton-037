@@ -1,0 +1,189 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "status": "Черновик правил. Перед показом семьям вычитывает практикующий соцработник.",
+    "modes": {
+      "direct": "Услуга попадает в план, если условие when истинно. Возрастные границы из services.json (eligibility.min_age_months / max_age_months) добавляются к условию автоматически.",
+      "prerequisite": "Своего условия нет. Попадает в план, только если её требует выбранная услуга (depends_on) и шаг ещё не пройден: документ-результат не на руках, либо satisfied_when не истинно.",
+      "trigger": "Никогда не добавляется автоматически. Добавляет куратор или событие маршрута (банк B), см. поле trigger."
+    },
+    "logic": "Трёхзначная: истина / ложь / неизвестно. Неизвестный факт делает условие нерешённым, а не ложным. Нерешённые услуги не входят в план — их видит куратор.",
+    "operators": "fact + одно из: eq, ne, in, gte, gt, lt, lte, contains, contains_any. Комбинаторы: all, any, not."
+  },
+  "services": {
+    "PMPK_EXAM": {
+      "mode": "direct",
+      "when": {
+        "any": [
+          { "fact": "has_pmpk_conclusion", "eq": false },
+          { "fact": "school_transition", "eq": true }
+        ]
+      },
+      "note": "Нет заключения ПМПК, или ребёнок идёт в школу — для выбора программы обучения нужно новое заключение."
+    },
+    "PMPK_APPEAL": {
+      "mode": "trigger",
+      "trigger": "disagrees_with_pmpk",
+      "note": "Только если родитель не согласен с типом образовательной программы."
+    },
+    "REHAB_ENROLL": {
+      "mode": "direct",
+      "when": {
+        "not": { "fact": "current_support", "contains_any": ["KPPK", "REHAB_CENTER", "AUTISM_CENTER"] }
+      },
+      "note": "Ребёнок ещё не занимается в государственном кабинете коррекции, реабилитационном центре или центре поддержки детей с РАС."
+    },
+    "SPECIAL_SCHOOL_ENROLL": {
+      "mode": "direct",
+      "when": {
+        "all": [
+          { "fact": "age_months", "gte": 36 },
+          { "not": { "fact": "setting", "in": ["school_special", "home_schooling"] } },
+          { "not": { "all": [
+            { "fact": "setting", "eq": "kindergarten_special" },
+            { "fact": "school_transition", "eq": false }
+          ] } },
+          { "any": [
+            { "fact": "setting", "in": ["home", "refused", "not_enrolled"] },
+            { "fact": "goal", "in": ["kindergarten", "school"] },
+            { "fact": "school_transition", "eq": true },
+            { "fact": "urgent", "contains": "school_enrollment" }
+          ] }
+        ]
+      },
+      "note": "Ребёнок дома, получил отказ или идёт в школу, либо семья сама назвала сад или школу целью."
+    },
+    "HOME_SCHOOLING": {
+      "mode": "direct",
+      "when": {
+        "all": [
+          { "fact": "has_vkk_home_study", "eq": true },
+          { "fact": "age_months", "gte": 72 },
+          { "fact": "setting", "ne": "home_schooling" }
+        ]
+      },
+      "note": "Есть заключение ВКК об обучении на дому, но обучение на дому ещё не организовано."
+    },
+    "MED_DIAGNOSIS_WAIT": {
+      "mode": "prerequisite",
+      "satisfied_when": {
+        "any": [
+          { "fact": "has_disability_cert", "eq": true },
+          { "fact": "months_since_diagnosis", "gte": 4 }
+        ]
+      },
+      "note": "Окно направления на МСЭ открывается не раньше чем через 4 месяца наблюдения."
+    },
+    "VKK_REFERRAL": {
+      "mode": "prerequisite",
+      "note": "Форма 031/у действует 30 дней и в интервью не спрашивается, поэтому шаг нужен всегда перед МСЭ."
+    },
+    "MSE_DECISION": {
+      "mode": "direct",
+      "when": {
+        "any": [
+          { "all": [
+            { "fact": "seeking_disability", "eq": true },
+            { "fact": "has_disability_cert", "eq": false }
+          ] },
+          { "all": [
+            { "fact": "has_disability_cert", "eq": true },
+            { "fact": "school_transition", "eq": true }
+          ] }
+        ]
+      },
+      "note": "Семья оформляет инвалидность, или инвалидность есть и перед школой нужно обновить ИПР."
+    },
+    "DISABILITY_BENEFIT": {
+      "mode": "direct",
+      "when": {
+        "any": [
+          { "all": [
+            { "fact": "has_disability_cert", "eq": true },
+            { "not": { "fact": "benefits_received", "contains": "DISABILITY_BENEFIT" } }
+          ] },
+          { "all": [
+            { "fact": "seeking_disability", "eq": true },
+            { "fact": "has_disability_cert", "eq": false }
+          ] }
+        ]
+      },
+      "note": "Инвалидность есть, а пособие не получают, или оно станет следующим шагом после МСЭ. Ответ «не знаю, что положено» считается как «не получаем»."
+    },
+    "SPECIAL_STATE_BENEFIT": {
+      "mode": "direct",
+      "when": {
+        "any": [
+          { "all": [
+            { "fact": "has_disability_cert", "eq": true },
+            { "not": { "fact": "benefits_received", "contains": "SPECIAL_STATE_BENEFIT" } }
+          ] },
+          { "all": [
+            { "fact": "seeking_disability", "eq": true },
+            { "fact": "has_disability_cert", "eq": false }
+          ] }
+        ]
+      },
+      "note": "Так же, как DISABILITY_BENEFIT."
+    },
+    "SSU_NEEDS_ASSESSMENT": { "mode": "prerequisite" },
+    "SSU_DOCS": { "mode": "prerequisite" },
+    "SSU_PORTAL_CHOICE": { "mode": "prerequisite" },
+    "SSU_DAYCARE": {
+      "mode": "direct",
+      "when": {
+        "all": [
+          { "any": [
+            { "fact": "has_disability_cert", "eq": true },
+            { "fact": "seeking_disability", "eq": true }
+          ] },
+          { "fact": "wants_ssu", "eq": "daycare" }
+        ]
+      },
+      "note": "Семья сама попросила дневное пребывание."
+    },
+    "SSU_HOME": {
+      "mode": "direct",
+      "when": {
+        "all": [
+          { "any": [
+            { "fact": "has_disability_cert", "eq": true },
+            { "fact": "seeking_disability", "eq": true }
+          ] },
+          { "fact": "wants_ssu", "eq": "home_help" }
+        ]
+      },
+      "note": "Семья сама попросила помощь на дому."
+    },
+    "SSU_RESIDENTIAL": {
+      "mode": "trigger",
+      "trigger": "explicit_parent_request",
+      "note": "Показывать деликатно и только по явному запросу родителя (ui_note в services.json)."
+    },
+    "SSU_HEALTH_SOCIAL_WORKER": {
+      "mode": "direct",
+      "when": { "fact": "has_curator", "in": ["none", "unknown_whom"] },
+      "note": "Семье никто не помогает с документами — соцработник поликлиники обязан помочь бесплатно."
+    },
+    "TSR_DOCS": {
+      "mode": "trigger",
+      "trigger": "ipr_includes_tsr",
+      "note": "Только если в ИПР есть технические средства."
+    },
+    "TSR_PORTAL_ORDER": {
+      "mode": "trigger",
+      "trigger": "ipr_includes_tsr",
+      "note": "Следует за TSR_DOCS."
+    },
+    "PROSTHETIC_DOCS": {
+      "mode": "trigger",
+      "trigger": "ipr_includes_prosthetics",
+      "note": "Только если в ИПР есть протезно-ортопедическая помощь."
+    },
+    "MOBILITY_DEVICE_DOCS": {
+      "mode": "trigger",
+      "trigger": "ipr_includes_mobility",
+      "note": "Только если в ИПР есть средства передвижения."
+    }
+  }
+}
