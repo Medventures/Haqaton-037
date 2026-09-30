@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from scripts import validate_catalog
+from seed import CASE_A, CASE_B
 from services import catalog
 from services.eligibility import (
     build_profile,
@@ -16,33 +17,6 @@ from services.eligibility import (
 )
 
 TODAY = date(2026, 9, 30)
-
-# Case A «Алихан, 3 года»: doctor's conclusion, no ПМПК, no disability yet, not in kindergarten.
-CASE_A = {
-    "age_months": 36,
-    "region": "Караганда",
-    "has_doctor_conclusion": True,
-    "setting": "home",
-    "documents_on_hand": [],
-    "seeking_disability": True,
-    "months_since_diagnosis": 2,
-    "goal": "kindergarten",
-    "current_support": [],
-    "has_curator": "none",
-}
-
-# Case B «Амина, 6 лет»: disability registered, special kindergarten group, starting school next year.
-CASE_B = {
-    "age_months": 72,
-    "region": "Караганда",
-    "has_doctor_conclusion": True,
-    "setting": "kindergarten_special",
-    "documents_on_hand": ["PMPK_CONCLUSION", "DISABILITY_CERT", "IPR"],
-    "goal": "school",
-    "current_support": ["KPPK"],
-    "benefits_received": ["DISABILITY_BENEFIT", "SPECIAL_STATE_BENEFIT"],
-    "has_curator": "social_worker",
-}
 
 
 def _assert_dependency_order(codes: list[str]) -> None:

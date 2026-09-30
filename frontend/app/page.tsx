@@ -1,51 +1,34 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 
 import { AuthCard } from "@/components/auth-card";
-import { Button } from "@/components/ui/button";
-import { ApiError, getMe, getToken, logout, type User } from "@/lib/api";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { logout } from "@/lib/api";
+import { useRequireAuth } from "@/lib/use-auth";
 
-// TODO: role switch (parent / curator) goes here after auth.
 export default function HomePage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    getMe()
-      .then(setUser)
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 401) {
-          logout();
-          router.replace("/login");
-        } else {
-          setError(err instanceof ApiError ? err.message : "Ошибка загрузки");
-        }
-      });
-  }, [router]);
+  const { user, error } = useRequireAuth();
 
   if (error) return <p className="p-8 text-center text-sm text-destructive">{error}</p>;
   if (!user) return <p className="p-8 text-center text-sm text-muted-foreground">Загрузка…</p>;
 
-  const fullName = [user.last_name, user.first_name, user.middle_name].filter(Boolean).join(" ");
-
   return (
-    <AuthCard title={`Здравствуйте, ${user.first_name}!`} description="Вы вошли в AqylRoute AI">
-      <div className="flex flex-col gap-4 text-sm">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-          <dt className="text-muted-foreground">ФИО</dt>
-          <dd>{fullName}</dd>
-          <dt className="text-muted-foreground">Телефон</dt>
-          <dd>+{user.phone}</dd>
-        </dl>
+    <AuthCard title={`Здравствуйте, ${user.first_name}!`} description="Кем вы заходите сегодня?">
+      <div className="flex flex-col gap-3">
+        <Link href="/parent" className={buttonVariants({ size: "lg" })}>
+          Я родитель
+        </Link>
+        <Link href="/curator" className={buttonVariants({ size: "lg", variant: "outline" })}>
+          Я куратор
+        </Link>
+        <p className="text-xs text-muted-foreground">
+          В демо куратором может войти любой пользователь.
+        </p>
         <Button
-          variant="outline"
+          variant="ghost"
           onClick={() => {
             logout();
             router.replace("/login");

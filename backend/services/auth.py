@@ -25,6 +25,8 @@ _JWT_SECRET = os.getenv("JWT_SECRET")
 if not _JWT_SECRET:
     log.warning("JWT_SECRET not set, using a random one: tokens reset on restart")
     _JWT_SECRET = secrets.token_urlsafe(32)
+elif _JWT_SECRET == "change-me":
+    log.warning("JWT_SECRET is the .env.example placeholder: anyone can forge tokens. Set a random value.")
 
 # scrypt parameters (stdlib, no native deps)
 _N, _R, _P = 2**14, 8, 1
