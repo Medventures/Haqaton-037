@@ -1,0 +1,98 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "purpose": "Словарь фактов о ситуации семьи. Интервью заполняет факты, правила в rules.json решают по ним, какие услуги нужны.",
+    "unknown": "Ответ «Не знаю» даёт null — факт остаётся неизвестным, и правила, которые от него зависят, остаются нерешёнными. Исключение — факты с полем dont_know: тогда «Не знаю» даёт это значение.",
+    "options": "Ключ — group_id из questions.json. Значение — список той же длины, что options группы: для choice — значение факта, для multi — список элементов множества ([] означает «ничего из этого»).",
+    "no_diagnosis": "Здесь нет и не будет факта о диагнозе. Функциональные шкалы (self_care, communication, learning, behaviour_control, mobility) — позиция 0–3 по шкале приказа № 200, показываются только куратору и никогда не пересказываются в тексте для семьи."
+  },
+  "facts": {
+    "age_months": { "type": "int", "min": 0, "max": 216 },
+    "region": { "type": "text" },
+    "has_doctor_conclusion": { "type": "bool" },
+    "goal": {
+      "type": "enum",
+      "values": ["where_to_start", "kindergarten", "school", "specialist_sessions", "benefits", "home_help", "unknown"],
+      "dont_know": "unknown"
+    },
+    "setting": {
+      "type": "enum",
+      "values": ["home", "kindergarten_regular", "kindergarten_special", "refused", "school_regular", "school_special", "home_schooling", "not_enrolled"]
+    },
+    "documents_on_hand": {
+      "type": "set",
+      "values": ["PMPK_CONCLUSION", "DISABILITY_CERT", "IPR", "VKK_HOME_STUDY"]
+    },
+    "seeking_disability": { "type": "bool" },
+    "months_since_diagnosis": { "type": "int", "min": 0, "max": 216 },
+    "self_care": { "type": "scale", "min": 0, "max": 3 },
+    "communication": { "type": "scale", "min": 0, "max": 3 },
+    "learning": { "type": "scale", "min": 0, "max": 3 },
+    "behaviour_control": { "type": "scale", "min": 0, "max": 3 },
+    "mobility": { "type": "scale", "min": 0, "max": 3 },
+    "current_support": {
+      "type": "set",
+      "values": ["KPPK", "REHAB_CENTER", "AUTISM_CENTER", "PRIVATE"]
+    },
+    "benefits_received": {
+      "type": "set",
+      "values": ["DISABILITY_BENEFIT", "SPECIAL_STATE_BENEFIT"]
+    },
+    "wants_ssu": { "type": "enum", "values": ["home_help", "daycare", "unsure", "no"] },
+    "urgent": {
+      "type": "set",
+      "values": ["school_enrollment", "doc_expiring", "refused_somewhere", "commission_soon"]
+    },
+    "has_curator": { "type": "enum", "values": ["social_worker", "parent_org", "none", "unknown_whom"] },
+    "preferred_channel": { "type": "enum", "values": ["sms", "whatsapp", "app", "none"] },
+    "language": { "type": "enum", "values": ["kk", "ru"] }
+  },
+  "derived": {
+    "has_pmpk_conclusion": { "fact": "documents_on_hand", "contains": "PMPK_CONCLUSION" },
+    "has_disability_cert": { "fact": "documents_on_hand", "contains": "DISABILITY_CERT" },
+    "has_ipr": { "fact": "documents_on_hand", "contains": "IPR" },
+    "has_vkk_home_study": { "fact": "documents_on_hand", "contains": "VKK_HOME_STUDY" },
+    "school_transition": {
+      "all": [
+        { "fact": "age_months", "gte": 60 },
+        { "fact": "age_months", "lt": 96 },
+        { "not": { "fact": "setting", "in": ["school_regular", "school_special", "home_schooling"] } }
+      ]
+    },
+    "month_now": { "computed": "today.month" }
+  },
+  "options": {
+    "goal.early": ["where_to_start", "specialist_sessions", "benefits", "home_help", "unknown"],
+    "goal.preschool": ["kindergarten", "specialist_sessions", "benefits", "home_help", "unknown"],
+    "goal.school": ["school", "specialist_sessions", "benefits", "home_help", "unknown"],
+    "doctor_conclusion.all": [true, false, false],
+    "documents.early": [["PMPK_CONCLUSION"], ["DISABILITY_CERT"], ["IPR"], []],
+    "documents.older": [["PMPK_CONCLUSION"], ["DISABILITY_CERT"], ["IPR"], ["VKK_HOME_STUDY"], []],
+    "setting.early": ["home", "kindergarten_regular", "home"],
+    "setting.preschool": ["kindergarten_regular", "kindergarten_special", "home", "refused"],
+    "setting.school": ["school_regular", "school_special", "home_schooling", "not_enrolled"],
+    "seeking_disability.all": [true, true, false, null],
+    "self_care.early": [0, 1, 2, 3],
+    "self_care.preschool": [0, 1, 2, 3],
+    "self_care.school": [0, 1, 2, 3],
+    "communication.early": [0, 1, 2, 3],
+    "communication.preschool": [0, 1, 2, 3],
+    "communication.school": [0, 1, 2, 3],
+    "learning.early": [0, 1, 2, 3],
+    "learning.preschool": [0, 1, 2, 3],
+    "learning.school": [0, 1, 2, 3],
+    "behaviour.younger": [0, 1, 2, 3],
+    "behaviour.school": [0, 1, 2, 3],
+    "mobility.early": [0, 1, 2, 3],
+    "mobility.older": [0, 1, 2, 3],
+    "support.younger": [["KPPK"], ["REHAB_CENTER"], ["AUTISM_CENTER"], ["PRIVATE"], []],
+    "support.school": [["KPPK"], ["REHAB_CENTER"], ["AUTISM_CENTER"], ["PRIVATE"], []],
+    "benefits.all": [["DISABILITY_BENEFIT"], ["SPECIAL_STATE_BENEFIT"], [], []],
+    "wants_ssu.all": ["home_help", "daycare", "unsure", "no"],
+    "urgent.seasonal": [["school_enrollment"], ["doc_expiring"], ["refused_somewhere"], []],
+    "urgent.general": [["doc_expiring"], ["refused_somewhere"], ["commission_soon"], []],
+    "curator.all": ["social_worker", "parent_org", "none", "unknown_whom"],
+    "channel.all": ["sms", "whatsapp", "app", "none"],
+    "language.all": ["kk", "ru"]
+  }
+}

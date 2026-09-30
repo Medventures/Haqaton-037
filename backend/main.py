@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 from db import create_db_and_tables  # noqa: E402
 from routers import auth  # noqa: E402
+from services import catalog  # noqa: E402, F401  load the catalog at startup so bad data fails fast
 
 
 @asynccontextmanager
