@@ -1,4 +1,4 @@
-"""Curator actions on a plan. Any logged-in user may act as curator (demo simplification, PLAN.md §1.3)."""
+"""Curator actions on a plan."""
 
 import copy
 from datetime import UTC, date, datetime
@@ -11,7 +11,7 @@ from db import get_session
 from models import Case, CaseStatus, Event, Plan
 from schemas import EscalationOut, PlanOut, StepAdd, StepAddOut, StepPatch
 from services import overdue, planner
-from services.auth import CurrentUser
+from services.auth import CurrentCurator
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -58,7 +58,7 @@ def _save(session: Session, plan: Plan, content: dict[str, Any], event: Event) -
 
 @router.patch("/{plan_id}/steps/{step_id}", response_model=PlanOut)
 def update_step(
-    plan_id: int, step_id: str, body: StepPatch, session: SessionDep, user: CurrentUser, today: TodayQuery = None
+    plan_id: int, step_id: str, body: StepPatch, session: SessionDep, user: CurrentCurator, today: TodayQuery = None
 ) -> PlanOut:
     plan, case = _load(session, plan_id)
     content = copy.deepcopy(plan.plan)
@@ -89,7 +89,7 @@ def update_step(
 
 
 @router.post("/{plan_id}/steps", response_model=StepAddOut, status_code=status.HTTP_201_CREATED)
-def add_step(plan_id: int, body: StepAdd, session: SessionDep, user: CurrentUser, today: TodayQuery = None) -> StepAddOut:
+def add_step(plan_id: int, body: StepAdd, session: SessionDep, user: CurrentCurator, today: TodayQuery = None) -> StepAddOut:
     """Add a catalog service (ServiceId only: anything else is a 422) with the prerequisites it still needs."""
     plan, case = _load(session, plan_id)
     today = today or date.today()
@@ -109,7 +109,7 @@ def add_step(plan_id: int, body: StepAdd, session: SessionDep, user: CurrentUser
 
 
 @router.post("/{plan_id}/approve", response_model=PlanOut)
-def approve(plan_id: int, session: SessionDep, user: CurrentUser, today: TodayQuery = None) -> PlanOut:
+def approve(plan_id: int, session: SessionDep, user: CurrentCurator, today: TodayQuery = None) -> PlanOut:
     """Approval gate: the parent sees the plan only after this."""
     plan, case = _load(session, plan_id)
     if case.status != CaseStatus.approved:
@@ -123,7 +123,7 @@ def approve(plan_id: int, session: SessionDep, user: CurrentUser, today: TodayQu
 
 @router.post("/{plan_id}/steps/{step_id}/escalate", response_model=EscalationOut)
 def escalate(
-    plan_id: int, step_id: str, session: SessionDep, user: CurrentUser, today: TodayQuery = None
+    plan_id: int, step_id: str, session: SessionDep, user: CurrentCurator, today: TodayQuery = None
 ) -> EscalationOut:
     """Log the escalation and return a pre-filled message to the responsible organization."""
     plan, case = _load(session, plan_id)

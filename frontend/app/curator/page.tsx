@@ -13,7 +13,7 @@ import { useSimDate } from "@/lib/sim-date";
 import { cn } from "@/lib/utils";
 
 export default function CuratorPage() {
-  return <AppShell wide>{() => <CaseTable />}</AppShell>;
+  return <AppShell role="curator" wide>{() => <CaseTable />}</AppShell>;
 }
 
 function CaseTable() {

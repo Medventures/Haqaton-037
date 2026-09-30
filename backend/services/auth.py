@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from db import get_session
-from models import User
+from models import User, UserRole
 from schemas import RegisterIn
 from services import otp
 from services.sms import send_sms
@@ -85,6 +85,7 @@ def register(session: Session, data: RegisterIn) -> User:
         middle_name=data.middle_name,
         phone=data.phone,
         password_hash=hash_password(data.password),
+        role=UserRole.parent,  # curators are created by an admin, never through registration
     )
     session.add(user)
     session.commit()
@@ -122,3 +123,16 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def _require(role: UserRole, message: str):
+    def check(user: CurrentUser) -> User:
+        if user.role != role:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, message)
+        return user
+
+    return check
+
+
+CurrentParent = Annotated[User, Depends(_require(UserRole.parent, "Доступно только родителю"))]
+CurrentCurator = Annotated[User, Depends(_require(UserRole.curator, "Доступно только куратору"))]

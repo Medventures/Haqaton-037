@@ -137,7 +137,8 @@ def test_fallback_parent_texts_have_no_team_notes():
 def test_plan_endpoint(session, monkeypatch):  # noqa: F811
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app.dependency_overrides[get_session] = lambda: session
-    app.dependency_overrides[get_current_user] = lambda: session.get(models.User, 1)
+    current = {"id": 3}  # curator
+    app.dependency_overrides[get_current_user] = lambda: session.get(models.User, current["id"])
     try:
         client = TestClient(app)
         unfinished = models.Case(parent_user_id=1, label="x", created_at=datetime(2026, 7, 15, tzinfo=UTC))

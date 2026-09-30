@@ -11,10 +11,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
-  generatePlan,
   getInterview,
   myPlan,
   sendAnswer,
+  submitInterview,
   type Answer,
   type InterviewState,
   type ParentPlan,
@@ -33,7 +33,7 @@ type Phase =
 
 export default function ParentCasePage() {
   const { caseId } = useParams<{ caseId: string }>();
-  return <AppShell>{() => <CaseFlow caseId={Number(caseId)} />}</AppShell>;
+  return <AppShell role="parent">{() => <CaseFlow caseId={Number(caseId)} />}</AppShell>;
 }
 
 function CaseFlow({ caseId }: { caseId: number }) {
@@ -45,7 +45,7 @@ function CaseFlow({ caseId }: { caseId: number }) {
     async (label: string) => {
       setPhase({ kind: "generating" });
       try {
-        await generatePlan(caseId);
+        await submitInterview(caseId);
         setPhase({ kind: "review", label });
       } catch (err) {
         setPhase({ kind: "error", message: errorText(err, "Не удалось составить план") });

@@ -1,12 +1,16 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "aqylroute_token";
 
+/** Parents register in the app; curator accounts are created by an admin. Roles never switch. */
+export type Role = "parent" | "curator";
+
 export type User = {
   id: number;
   last_name: string;
   first_name: string;
   middle_name: string | null;
   phone: string;
+  role: Role;
 };
 
 export type TokenResponse = {
@@ -293,12 +297,12 @@ export const sendAnswer = (caseId: number, answer: Answer) =>
   request<InterviewState>(`/cases/${caseId}/answers`, post(answer));
 export const myCases = () => request<Case[]>("/parent/cases");
 export const myPlan = (caseId: number) => request<ParentPlan>(`/parent/cases/${caseId}`);
-
-// Plan generation (parent after the interview, curator to regenerate)
-export const generatePlan = (caseId: number, regenerate = false) =>
-  request<Plan>(`/cases/${caseId}/plan${regenerate ? "?regenerate=true" : ""}`, post());
+/** After the last answer: builds the plan and sends it to the curator (the plan isn't returned). */
+export const submitInterview = (caseId: number) => request<Case>(`/parent/cases/${caseId}/plan`, post());
 
 // Curator
+export const generatePlan = (caseId: number, regenerate = false) =>
+  request<Plan>(`/cases/${caseId}/plan${regenerate ? "?regenerate=true" : ""}`, post());
 export const listCases = (today?: string) => request<CaseList>(withToday("/cases", today));
 export const caseDetail = (caseId: number, today?: string) =>
   request<CaseDetail>(withToday(`/cases/${caseId}`, today));

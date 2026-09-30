@@ -50,6 +50,7 @@ class UserOut(BaseModel):
     first_name: str
     middle_name: str | None
     phone: str
+    role: Literal["parent", "curator"]
 
 
 class TokenOut(BaseModel):

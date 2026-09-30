@@ -25,11 +25,14 @@ def test_seed(session):  # noqa: F811
     parent, created, demo_today = seed.seed(session, date(2026, 9, 30))
     assert demo_today == date(2026, 9, 11)
     assert verify_password(seed.DEMO_PASSWORD, parent.password_hash)
-    assert len(session.exec(select(models.User)).all()) == 3  # two test users + the demo parent
+    assert len(session.exec(select(models.User)).all()) == 5  # three test users + the two demo accounts
     assert [c.label for c in session.exec(select(models.Case)).all()] == ["Алихан, 3 года", "Амина, 6 лет"]
 
     app.dependency_overrides[get_session] = lambda: session
-    app.dependency_overrides[get_current_user] = lambda: parent
+    curator = session.exec(select(models.User).where(models.User.phone == seed.DEMO_CURATOR_PHONE)).one()
+    assert curator.role == "curator" and parent.role == "parent"
+    current = {"user": curator}
+    app.dependency_overrides[get_current_user] = lambda: current["user"]
     try:
         client = TestClient(app)
         listing = client.get(f"/cases?today={demo_today}").json()["cases"]
@@ -40,6 +43,7 @@ def test_seed(session):  # noqa: F811
         assert by_label["Амина, 6 лет"]["worst_level"] == 2
         assert listing[0]["label"] == "Амина, 6 лет"  # worst first
 
+        current["user"] = parent
         for case, _ in created:
             assert case.status == "approved"
             assert 8 <= len(session.exec(select(models.InterviewAnswer).where(

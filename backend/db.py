@@ -2,7 +2,7 @@ import os
 from collections.abc import Iterator
 
 from dotenv import load_dotenv
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 load_dotenv()
@@ -33,6 +33,10 @@ def create_db_and_tables() -> None:
     import models  # noqa: F401  register tables
 
     SQLModel.metadata.create_all(engine)
+    with engine.begin() as conn:
+        # create_all doesn't add columns to existing tables: users predates roles.
+        if "role" not in {c["name"] for c in inspect(conn).get_columns("users")}:
+            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'parent'"))
     if not IS_SQLITE:
         # Block Supabase's public REST API (anon/authenticated roles) from reading our tables.
         # The backend connects as the postgres role, which bypasses RLS.

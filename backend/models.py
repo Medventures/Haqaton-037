@@ -17,6 +17,11 @@ def _created_at() -> Any:
     return Field(default_factory=_now, sa_column=Column(DateTime(timezone=True), nullable=False))
 
 
+class UserRole(StrEnum):
+    parent = "parent"  # everyone who registers in the app
+    curator = "curator"  # created by an admin: scripts/create_curator.py
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
@@ -26,6 +31,7 @@ class User(SQLModel, table=True):
     middle_name: str | None = Field(default=None, max_length=100)
     phone: str = Field(max_length=20, unique=True, index=True)
     password_hash: str = Field(max_length=255)
+    role: str = Field(default=UserRole.parent, max_length=20)
 
 
 class CaseStatus(StrEnum):

@@ -14,7 +14,7 @@ import { createCase, myCases, type Case } from "@/lib/api";
 import { errorText, formatDate } from "@/lib/format";
 
 export default function ParentPage() {
-  return <AppShell>{() => <MyCases />}</AppShell>;
+  return <AppShell role="parent">{() => <MyCases />}</AppShell>;
 }
 
 function MyCases() {

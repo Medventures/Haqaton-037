@@ -15,9 +15,9 @@ from tests.test_interview import _run, session  # noqa: F401  (fixture)
 
 @pytest.fixture
 def api(session, monkeypatch):  # noqa: F811
-    """A client plus a way to switch the logged-in user (1 is the parent, 2 someone else)."""
+    """A client plus a way to switch the logged-in user."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    current = {"id": 1}
+    current = {"id": 3}  # the curator; 1 is the parent, 2 another parent
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_current_user] = lambda: session.get(models.User, current["id"])
     client = TestClient(app)
@@ -50,12 +50,17 @@ def test_overdue_levels():
 
 def test_approval_gate(api, session):  # noqa: F811
     case, body = _planned_case(api, session, CASE_B)
+    api.login_as(1)
     assert api.get(f"/parent/cases/{case.id}").status_code == 403  # not approved yet
     assert [c["id"] for c in api.get("/parent/cases").json()] == [case.id]
 
     api.login_as(2)
     assert api.get("/parent/cases").json() == []
-    assert api.post(f"/plans/{body['id']}/approve").json()["case_status"] == "approved"  # curator
+
+    api.login_as(3)
+    assert api.post(f"/plans/{body['id']}/approve").json()["case_status"] == "approved"
+
+    api.login_as(2)
     assert api.get(f"/parent/cases/{case.id}").status_code == 403  # someone else's case
 
     api.login_as(1)
@@ -67,7 +72,9 @@ def test_approval_gate(api, session):  # noqa: F811
     assert _events(session, case.id) == ["plan_generated", "plan_approved"]
 
     # Regenerating sends the plan back to the curator.
+    api.login_as(3)
     api.post(f"/cases/{case.id}/plan?regenerate=true")
+    api.login_as(1)
     assert api.get(f"/parent/cases/{case.id}").status_code == 403
 
 

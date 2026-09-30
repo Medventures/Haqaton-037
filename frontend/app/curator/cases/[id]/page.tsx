@@ -41,7 +41,7 @@ const EVENT_LABEL: Record<string, string> = {
 
 export default function CuratorCasePage() {
   const { id } = useParams<{ id: string }>();
-  return <AppShell wide>{() => <CaseView caseId={Number(id)} />}</AppShell>;
+  return <AppShell role="curator" wide>{() => <CaseView caseId={Number(id)} />}</AppShell>;
 }
 
 function CaseView({ caseId }: { caseId: number }) {

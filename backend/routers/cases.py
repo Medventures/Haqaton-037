@@ -21,7 +21,7 @@ from schemas import (
     QuestionOut,
 )
 from services import interview, overdue, planner
-from services.auth import CurrentUser
+from services.auth import CurrentCurator, CurrentParent
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -50,7 +50,7 @@ def _interview_out(session: Session, case: Case) -> InterviewOut:
 
 
 @router.post("", response_model=InterviewOut, status_code=status.HTTP_201_CREATED)
-def create_case(body: CaseCreate, session: SessionDep, user: CurrentUser) -> InterviewOut:
+def create_case(body: CaseCreate, session: SessionDep, user: CurrentParent) -> InterviewOut:
     case = Case(parent_user_id=user.id, label=body.label.strip())
     session.add(case)
     session.commit()
@@ -59,13 +59,13 @@ def create_case(body: CaseCreate, session: SessionDep, user: CurrentUser) -> Int
 
 
 @router.get("/{case_id}/interview", response_model=InterviewOut)
-def get_interview(case_id: int, session: SessionDep, user: CurrentUser) -> InterviewOut:
+def get_interview(case_id: int, session: SessionDep, user: CurrentParent) -> InterviewOut:
     """Resume the interview: the same question text is shown again (deterministic per case and slot)."""
     return _interview_out(session, _own_case(session, case_id, user))
 
 
 @router.post("/{case_id}/answers", response_model=InterviewOut)
-def answer(case_id: int, body: AnswerIn, session: SessionDep, user: CurrentUser) -> InterviewOut:
+def answer(case_id: int, body: AnswerIn, session: SessionDep, user: CurrentParent) -> InterviewOut:
     case = _own_case(session, case_id, user)
     try:
         interview.submit_answer(session, case, body, date.today())
@@ -79,11 +79,10 @@ def answer(case_id: int, body: AnswerIn, session: SessionDep, user: CurrentUser)
 
 
 @router.post("/{case_id}/plan", response_model=PlanOut)
-def create_plan(case_id: int, session: SessionDep, user: CurrentUser, regenerate: bool = False) -> PlanOut:
-    """Build the plan once the interview is over; returns the existing plan unless `regenerate`.
+def create_plan(case_id: int, session: SessionDep, user: CurrentCurator, regenerate: bool = False) -> PlanOut:
+    """Curator: build the plan once the interview is over; returns the existing plan unless `regenerate`.
 
-    Any logged-in user may call it (the curator view is open to everyone in the demo).
-    The approval gate is on the parent's read endpoint.
+    The parent triggers the first build with POST /parent/cases/{id}/plan, which doesn't return the plan.
     """
     case = session.get(Case, case_id)
     if case is None:
@@ -96,7 +95,7 @@ def create_plan(case_id: int, session: SessionDep, user: CurrentUser, regenerate
 
 
 # ---------------------------------------------------------------------------
-# Curator view. Any logged-in user may open it (demo simplification, PLAN.md §1.3).
+# Curator view.
 
 
 def _full_name(user: User) -> str:
@@ -104,7 +103,7 @@ def _full_name(user: User) -> str:
 
 
 @router.get("", response_model=CaseListOut)
-def list_cases(session: SessionDep, user: CurrentUser, today: TodayQuery = None) -> CaseListOut:
+def list_cases(session: SessionDep, user: CurrentCurator, today: TodayQuery = None) -> CaseListOut:
     """All cases, most overdue first, with the curator's load against the catalog norm."""
     today = today or date.today()
     rows = session.exec(select(Case, User).join(User, col(Case.parent_user_id) == col(User.id))).all()
@@ -130,7 +129,7 @@ def list_cases(session: SessionDep, user: CurrentUser, today: TodayQuery = None)
 
 
 @router.get("/{case_id}", response_model=CaseDetailOut)
-def case_detail(case_id: int, session: SessionDep, user: CurrentUser, today: TodayQuery = None) -> CaseDetailOut:
+def case_detail(case_id: int, session: SessionDep, user: CurrentCurator, today: TodayQuery = None) -> CaseDetailOut:
     case = session.get(Case, case_id)
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Дело не найдено")

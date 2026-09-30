@@ -25,6 +25,8 @@ def session():
     with Session(engine) as s:
         s.add(models.User(id=1, last_name="Тест", first_name="Родитель", phone="+77010000001", password_hash="x"))
         s.add(models.User(id=2, last_name="Чужой", first_name="Родитель", phone="+77010000002", password_hash="x"))
+        s.add(models.User(id=3, last_name="Тест", first_name="Куратор", phone="+77010000003", password_hash="x",
+                          role="curator"))
         s.commit()
         yield s
 

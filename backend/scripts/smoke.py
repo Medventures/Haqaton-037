@@ -15,7 +15,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from seed import DEMO_PASSWORD, DEMO_PHONE, demo_date  # noqa: E402
+from seed import DEMO_CURATOR_PHONE, DEMO_PASSWORD, DEMO_PHONE, demo_date  # noqa: E402
 
 results: list[tuple[bool, str]] = []
 
@@ -42,12 +42,19 @@ def main() -> None:
     r = api.get("/services")
     check(r.status_code == 200 and len(r.json()) == 21, "catalog: 21 services", r.text[:200])
 
-    r = api.post("/auth/login", json={"phone": DEMO_PHONE, "password": DEMO_PASSWORD})
-    if not check(r.status_code == 200, "demo parent can log in (run seed.py --yes first)", r.text[:200]):
-        return
-    api.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
+    tokens = {}
+    for role, phone in (("parent", DEMO_PHONE), ("curator", DEMO_CURATOR_PHONE)):
+        r = api.post("/auth/login", json={"phone": phone, "password": DEMO_PASSWORD})
+        ok = r.status_code == 200 and r.json()["user"]["role"] == role
+        if not check(ok, f"demo {role} can log in (run seed.py --yes first)", r.text[:200]):
+            return
+        tokens[role] = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    as_parent, as_curator = tokens["parent"], tokens["curator"]
 
-    r = api.get("/cases", params={"today": today})
+    check(api.get("/cases", headers=as_parent).status_code == 403, "parent is refused the curator case list")
+    check(api.get("/parent/cases", headers=as_curator).status_code == 403, "curator is refused the parent pages")
+
+    r = api.get("/cases", params={"today": today}, headers=as_curator)
     cases = {c["label"]: c for c in r.json().get("cases", [])} if r.status_code == 200 else {}
     alikhan, amina = cases.get("Алихан, 3 года"), cases.get("Амина, 6 лет")
     check(bool(alikhan and amina), "both seed cases listed", r.text[:200])
@@ -56,13 +63,13 @@ def main() -> None:
         check(amina["worst_level"] == 2 and amina["overdue_count"] == 1, f"Амина: school enrolment overdue, level 2 on {today}")
         check(r.json()["load"]["norm_max"] == 30, "curator load against the 10–30 norm")
 
-        r = api.get(f"/parent/cases/{amina['id']}", params={"today": today})
+        r = api.get(f"/parent/cases/{amina['id']}", params={"today": today}, headers=as_parent)
         steps = r.json().get("steps", []) if r.status_code == 200 else []
         late = [(s["step_id"], s["days_overdue"]) for s in steps if s["days_overdue"]]
         check(late == [("SPECIAL_SCHOOL_ENROLL", 12)], "parent sees the approved plan, 12 days on school", str(late))
         check(all("rationale" not in s for s in steps), "parent view has no curator rationale")
 
-        r = api.post(f"/plans/{amina['plan_id']}/steps", json={"service_id": "NOT_IN_CATALOG"})
+        r = api.post(f"/plans/{amina['plan_id']}/steps", json={"service_id": "NOT_IN_CATALOG"}, headers=as_curator)
         check(r.status_code == 422, "adding a service outside the catalog is refused (422)", str(r.status_code))
 
     if args.web:

@@ -1,4 +1,5 @@
-"""Demo data: resets the case tables (users are kept) and creates a demo parent with two approved cases.
+"""Demo data: resets the case tables (users are kept), then creates a demo parent with two approved cases
+and a demo curator (curators are normally created by an admin with scripts/create_curator.py).
 
 Run from backend/:
     python seed.py            # local SQLite; asks for --yes on any other database
@@ -24,14 +25,15 @@ load_dotenv()
 from sqlmodel import Session, delete, select  # noqa: E402
 
 from db import IS_SQLITE, create_db_and_tables, engine  # noqa: E402
-from models import Case, CaseStatus, Event, InterviewAnswer, Plan, User  # noqa: E402
+from models import Case, CaseStatus, Event, InterviewAnswer, Plan, User, UserRole  # noqa: E402
 from schemas import AnswerIn  # noqa: E402
 from services import catalog, interview, planner  # noqa: E402
 from services.auth import hash_password  # noqa: E402
 from services.phone import normalize_phone  # noqa: E402
 
 DEMO_PHONE = normalize_phone("+7 700 000 00 01")
-DEMO_PASSWORD = "demo12345"
+DEMO_CURATOR_PHONE = normalize_phone("+7 700 000 00 02")
+DEMO_PASSWORD = "demo12345"  # both demo accounts
 
 # Case A «Алихан, 3 года»: doctor's conclusion, no ПМПК, no disability yet, not in kindergarten.
 CASE_A = {
@@ -105,10 +107,12 @@ def run_interview(session: Session, case: Case, facts: dict[str, Any], today: da
     return asked
 
 
-def _demo_parent(session: Session) -> User:
-    user = session.exec(select(User).where(User.phone == DEMO_PHONE)).first()
+def _demo_user(session: Session, phone: str, first_name: str, role: UserRole) -> User:
+    user = session.exec(select(User).where(User.phone == phone)).first()
     if user is None:
-        user = User(last_name="Демо", first_name="Родитель", phone=DEMO_PHONE, password_hash="")
+        user = User(last_name="Демо", first_name=first_name, phone=phone, password_hash="", role=role)
+    elif user.role != role:  # roles never switch, not even for the demo numbers
+        raise ValueError(f"+{phone} is already a {user.role} account; the demo needs it as {role}")
     user.password_hash = hash_password(DEMO_PASSWORD)  # always the documented demo password
     session.add(user)
     session.flush()
@@ -124,7 +128,8 @@ def reset_cases(session: Session) -> None:
 def seed(session: Session, today: date) -> tuple[User, list[tuple[Case, Plan]], date]:
     demo_today = demo_date(today)
     reset_cases(session)
-    parent = _demo_parent(session)
+    parent = _demo_user(session, DEMO_PHONE, "Родитель", UserRole.parent)
+    _demo_user(session, DEMO_CURATOR_PHONE, "Куратор", UserRole.curator)
 
     created = []
     for label, facts, late_step, days_late, start_offset in DEMO_CASES:
@@ -174,7 +179,8 @@ def main() -> None:
     create_db_and_tables()
     with Session(engine) as session:
         parent, created, demo_today = seed(session, date.today())
-        print(f"Demo parent: phone +{parent.phone}, password {DEMO_PASSWORD}")
+        print(f"Demo parent:  phone +{parent.phone}, password {DEMO_PASSWORD}")
+        print(f"Demo curator: phone +{DEMO_CURATOR_PHONE}, password {DEMO_PASSWORD}")
         for case, plan in created:
             steps = plan.plan["steps"]
             late = [s["service_id"] for s in steps if s["status"] != "done" and s["due_date"] < demo_today.isoformat()]
